@@ -13,7 +13,17 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from openenv.core import EnvClient
-from openenv.core.client_types import StepResult
+
+# StepResult is the return type of EnvClient.step() — defined inline for compatibility
+from typing import Generic, TypeVar, NamedTuple
+
+_O = TypeVar("_O")
+
+class StepResult(NamedTuple):
+    """Minimal StepResult compatible with openenv.core EnvClient."""
+    observation: Any
+    reward: float
+    done: bool
 
 from .models import AgentAction, EpisodeState, TaskObservation, ToolResult
 
