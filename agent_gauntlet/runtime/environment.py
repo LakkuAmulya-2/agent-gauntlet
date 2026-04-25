@@ -41,6 +41,7 @@ from ..models import (
 from ..packs import PackManager
 from .rubrics import AgentGauntletRubric
 from .scenarios import GeneratedTask, InjectedFailure, ScenarioGenerator, RECOVERY_STRATEGIES, COST_PER_TOOL, DIFFICULTY_CONFIG
+from .kaizen import KaizenKernel
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +159,8 @@ class AgentGauntletEnvironment(Environment):
         default_difficulty: DifficultyLevel = DifficultyLevel.EASY,
         seed: Optional[int] = None,
         adaptive_curriculum: bool = True,
+        kaizen: bool = True,
+        kaizen_persist_path: Optional[str] = None,
     ):
         super().__init__()
         self._difficulty = default_difficulty
@@ -173,9 +176,15 @@ class AgentGauntletEnvironment(Environment):
         # RLVE: track recent performance to auto-adjust difficulty
         self._recent_rewards: List[float] = []
         self._episode_count: int = 0
-        self._WINDOW = 10          # episodes to average over
-        self._PROMOTE_THRESHOLD = 0.65   # avg reward → promote difficulty
-        self._DEMOTE_THRESHOLD = 0.20    # avg reward → demote difficulty
+        self._WINDOW = 10
+        self._PROMOTE_THRESHOLD = 0.65
+        self._DEMOTE_THRESHOLD = 0.20
+
+        # Kaizen Kernel — self-improvement engine
+        self._kaizen: Optional[KaizenKernel] = (
+            KaizenKernel(persist_path=kaizen_persist_path) if kaizen else None
+        )
+        self._next_kaizen_config: Dict[str, Any] = {}
 
         # Episode state
         self._task: Optional[GeneratedTask] = None
@@ -213,10 +222,21 @@ class AgentGauntletEnvironment(Environment):
         # RLVE: auto-adjust difficulty based on recent performance
         if difficulty:
             diff = DifficultyLevel(difficulty)
+        elif self._next_kaizen_config.get("difficulty"):
+            # Kaizen curriculum takes priority over plain RLVE
+            diff = DifficultyLevel(self._next_kaizen_config["difficulty"])
         elif self._adaptive_curriculum and len(self._recent_rewards) >= self._WINDOW:
             diff = self._adapt_difficulty()
         else:
             diff = self._difficulty
+
+        # Domain: use Kaizen-targeted domain if no explicit override
+        if domain is None and self._next_kaizen_config.get("domain"):
+            domain = self._next_kaizen_config["domain"]
+
+        # Harder variant: use Kaizen suggestion if no explicit override
+        if not use_harder_variant and self._next_kaizen_config.get("use_harder_variant"):
+            use_harder_variant = True
 
         dom = TaskDomain(domain) if domain else None
 
@@ -876,6 +896,28 @@ class AgentGauntletEnvironment(Environment):
             if len(self._recent_rewards) > self._WINDOW * 2:
                 self._recent_rewards = self._recent_rewards[-self._WINDOW:]
 
+            # Kaizen: process episode, get next config
+            if self._kaizen is not None:
+                self._next_kaizen_config = self._kaizen.on_episode_end(
+                    episode_id=self._state.task_id,
+                    episode_reward=ep_reward,
+                    metadata=obs.metadata,
+                    traces=list(self._state.diagnostic_traces),
+                    trace_quality_scores=list(self._state.trace_quality_scores),
+                    current_difficulty=self._state.difficulty,
+                    domain=self._state.task_domain,
+                )
+                # Expose kaizen config in metadata for notebook/demo
+                obs.metadata["kaizen"] = {
+                    "next_difficulty": self._next_kaizen_config.get("difficulty"),
+                    "weak_skills": self._next_kaizen_config.get("weak_skills", []),
+                    "mastered_skills": self._next_kaizen_config.get("mastered_skills", []),
+                    "boost_failure_types": self._next_kaizen_config.get("boost_failure_types", []),
+                    "use_harder_variant": self._next_kaizen_config.get("use_harder_variant", False),
+                    "trace_memory_size": self._kaizen.trace_memory.size,
+                    "episode_count": self._kaizen._episode_count,
+                }
+
         # Attach for TRL compatibility
         obs._reward = reward
 
@@ -1244,9 +1286,22 @@ class AgentGauntletEnvironment(Environment):
         pass
 
     @property
+    def kaizen_report(self) -> Dict[str, Any]:
+        """Full Kaizen self-improvement report — exposed via /kaizen/report."""
+        if self._kaizen is None:
+            return {"enabled": False}
+        return {"enabled": True, **self._kaizen.report()}
+
+    def export_sft_dataset(self) -> List[Dict[str, Any]]:
+        """Export trace memory as SFT training examples for next round."""
+        if self._kaizen is None:
+            return []
+        return self._kaizen.export_sft_dataset()
+
+    @property
     def current_difficulty(self) -> str:
         """Current difficulty level — useful for monitoring adaptive curriculum."""
-        return self._difficulty.valuealue
+        return self._difficulty.value
 
     @property
     def episode_count(self) -> int:

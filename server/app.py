@@ -42,6 +42,20 @@ def health_check():
     }
 
 
+@app.get("/kaizen/report")
+def kaizen_report():
+    """Kaizen self-improvement report — skill profile, learning curve, trace memory."""
+    env = _env_factory()
+    return env.kaizen_report
+
+
+@app.get("/kaizen/sft_dataset")
+def kaizen_sft_dataset():
+    """Export trace memory as SFT training examples for next round."""
+    env = _env_factory()
+    return {"examples": env.export_sft_dataset()}
+
+
 _ENABLE_WEB = os.environ.get("ENABLE_WEB_INTERFACE", "true").lower() != "false"
 if _ENABLE_WEB:
     try:
