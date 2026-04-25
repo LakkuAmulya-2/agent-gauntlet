@@ -145,6 +145,19 @@ class AgentAction:
         """Compatibility shim for OpenEnv /schema endpoint."""
         return TypeAdapter(cls).json_schema()
 
+    @classmethod
+    def model_validate(cls, payload: Any) -> "AgentAction":
+        """Pydantic-compatible constructor used by OpenEnv internals."""
+        if isinstance(payload, cls):
+            return payload
+        if isinstance(payload, dict):
+            return cls(**payload)
+        raise TypeError(f"Unsupported payload type for AgentAction: {type(payload)!r}")
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """Pydantic-compatible serializer used by OpenEnv internals."""
+        return asdict(self)
+
 
 # ---------------------------------------------------------------------------
 # Observation
@@ -247,6 +260,25 @@ class TaskObservation:
     def model_json_schema(cls) -> Dict[str, Any]:
         """Compatibility shim for OpenEnv /schema endpoint."""
         return TypeAdapter(cls).json_schema()
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """Pydantic-compatible serializer used by OpenEnv internals."""
+        return asdict(self)
+
+    @property
+    def observation(self) -> "TaskObservation":
+        """StepResult compatibility: OpenEnv clients may expect `.observation`."""
+        return self
+
+    @property
+    def reward(self) -> float:
+        """StepResult compatibility: expose per-step reward when present."""
+        return float(getattr(self, "_reward", 0.0))
+
+    @property
+    def done(self) -> bool:
+        """StepResult compatibility: OpenEnv clients may expect `.done`."""
+        return bool(self.is_done)
 
 
 # ---------------------------------------------------------------------------

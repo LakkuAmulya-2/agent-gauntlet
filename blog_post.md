@@ -6,12 +6,12 @@
 
 ## TL;DR
 
-We built **Agent Gauntlet** — an RL environment that trains LLMs to handle the exact conditions that cause 88% of enterprise AI agents to fail in production. The environment injects real failure modes (API errors, cascading failures, context overflow, adversarial inputs) into multi-step enterprise tasks, and trains agents to detect, recover, and complete tasks despite them. After GRPO training, task completion under failure conditions improved from **8% → 61%** and failure detection rate went from **0% → 67%**.
+We built **Agent Gauntlet** — an RL environment that trains LLMs to handle the exact conditions that cause 88% of enterprise AI agents to fail in production. The environment injects real failure modes (API errors, cascading failures, context overflow, adversarial inputs) into multi-step enterprise tasks, and trains agents to detect, recover, and complete tasks despite them. In the latest reproducible baseline benchmark (`assets/results.json`), heuristic behavior significantly improves reward and budget efficiency over random policy.
 
-🤗 **Space:** [amulyalakku/agent-gauntlet](https://huggingface.co/spaces/amulyalakku/agent-gauntlet)  
-📓 **Colab Notebook:** [Open in Colab](https://colab.research.google.com/github/amulyalakku/agent-gauntlet/blob/main/notebooks/agent_gauntlet_grpo.ipynb)  
-📊 **Training Run:** [Wandb — add link after training]  
-🎥 **Demo Video:** [YouTube — add link after recording]
+🤗 **Space:** `https://huggingface.co/spaces/<YOUR_HF_USERNAME>/agent-gauntlet`  
+📓 **Colab Notebook:** `https://colab.research.google.com/github/<YOUR_GITHUB_USER>/agent-gauntlet/blob/main/notebooks/agent_gauntlet_grpo.ipynb`  
+📊 **Training Run:** `<WANDB_RUN_URL>`  
+🎥 **Demo Video:** `<YOUTUBE_URL>`
 
 ---
 
@@ -71,7 +71,7 @@ The agent responds with structured JSON actions:
  "reasoning": "Retrying after wait period"}
 ```
 
-### The 5 failure modes we inject
+### Representative failure modes we inject
 
 | Failure | HTTP Code | What the agent must do |
 |---|---|---|
@@ -153,15 +153,18 @@ model, tokenizer = FastLanguageModel.from_pretrained(
 trainer = GRPOTrainer(
     model=model,
     reward_funcs=[
-        reward_task_completion,   # 30% weight
-        reward_failure_handling,  # 20% weight
-        reward_efficiency,        # 12% weight
-        reward_security,          # 6%  — refuse prompt injections
-        reward_compliance,        # 6%  — detect policy violations
-        reward_sla,               # 4%  — latency tracking
-        reward_observability,     # 4%  — diagnostic trace quality
-        reward_theory_of_mind,    # 2%  — stakeholder belief modeling
-        reward_long_horizon,      # 2%  — checkpoint + recall
+        reward_task_completion,          # reward_func_0
+        reward_failure_handling,         # reward_func_1
+        reward_efficiency,               # reward_func_2
+        reward_multi_agent,              # reward_func_3
+        reward_long_horizon,             # reward_func_4
+        reward_reasoning_quality,        # reward_func_5
+        reward_security,                 # reward_func_6
+        reward_compliance,               # reward_func_7
+        reward_sla_reliability,          # reward_func_8
+        reward_observability,            # reward_func_9
+        reward_theory_of_mind,           # reward_func_10
+        reward_long_horizon_compression, # reward_func_11
     ],
     environment_factory=AgentGauntletTRLEnv,
     args=GRPOConfig(use_vllm=True, vllm_mode="colocate", ...),
@@ -181,17 +184,17 @@ trainer.train()
 *Episode reward vs training step. Red dashed = random baseline (0.12). Trained agent reaches 0.58 avg reward.*
 
 ![Per-component rewards](assets/component_rewards.png)
-*Individual reward components tracked via wandb `train/reward_func_0..8`.*
+*Individual reward components tracked via wandb `train/reward_func_0..11`.*
 
 ### Before vs After
 
-| Metric | Random Baseline | Trained (Easy) | Trained (Hard) |
-|---|---|---|---|
-| Task completion rate | 8% | **61%** | 47% |
-| Failure detection rate | 0% | **67%** | 71% |
-| Correct recovery rate | 0% | **54%** | 63% |
-| Budget efficiency | 0.41 | **0.73** | 0.68 |
-| Avg episode reward | 0.12 | **0.58** | 0.51 |
+| Metric | Random Baseline | Smart Heuristic (Easy) |
+|---|---|---|
+| Task completion rate | 0.0% | 0.0% |
+| Failure detection rate | 0.0% | 1.30% |
+| Recovery rate | 0.0% | 4.0% |
+| Avg budget remaining | 0.0573 | 0.4760 |
+| Avg episode reward | 0.0828 | 0.9964 |
 
 ### What the trained agent learned
 
@@ -256,7 +259,7 @@ Or open the [Colab notebook](notebooks/agent_gauntlet_grpo.ipynb) to run trainin
 
 ## Links
 
-- 🤗 **HuggingFace Space:** [amulyalakku/agent-gauntlet](https://huggingface.co/spaces/amulyalakku/agent-gauntlet)
+- 🤗 **HuggingFace Space:** `https://huggingface.co/spaces/<YOUR_HF_USERNAME>/agent-gauntlet`
 - 💻 **GitHub / Code:** [README](README.md)
 - 📓 **Colab Notebook:** [agent_gauntlet_grpo.ipynb](notebooks/agent_gauntlet_grpo.ipynb)
 - 📊 **Wandb Training Run:** *[add after training]*

@@ -1,15 +1,45 @@
-﻿__pycache__/
+﻿# Python
+__pycache__/
 *.pyc
 *.pyo
+*.pyd
+
+# Virtual environments
 .venv/
 venv/
+env/
+
+# Environment / secrets
 .env
-outputs/
+*.env
+
+# Build / packaging
 *.egg-info/
 dist/
 build/
-.pytest_cache/
+*.egg
+
+# Lock files (uv)
+uv.lock
+
+# Training outputs
+outputs/
+
+# Logs
 *.log
 
-assets/*.png
-assets/*.jpg
+# Test cache
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git LFS / binary assets tracked separately
+# assets/*.png and assets/*.json are committed directly (small files)

@@ -1,10 +1,10 @@
 spec_version: 1
 name: agent_gauntlet
 type: space
-runtime: gradio
-app: demo_app.py
+runtime: docker
+app: Dockerfile
 port: 7860
-web_path: /
+web_path: /web
 
 metadata:
   name: "Agent Gauntlet"

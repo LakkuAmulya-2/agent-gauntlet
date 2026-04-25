@@ -17,8 +17,9 @@ RUN pip install --no-cache-dir -e . --no-deps
 
 EXPOSE 7860
 
-ENV GRADIO_SERVER_NAME=0.0.0.0
-ENV GRADIO_SERVER_PORT=7860
+# Space entrypoint must expose OpenEnv FastAPI (/ws, /reset, /step).
+# Gradio UI is mounted under /web by server.app.
 ENV GAUNTLET_ENV_URL=http://localhost:7860
+ENV ENABLE_WEB_INTERFACE=true
 
-CMD ["python", "demo_app.py"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

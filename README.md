@@ -34,11 +34,11 @@ tags:
 
 | Resource | Link |
 |---|---|
-| 🤗 HuggingFace Space | Deploy with `openenv push`, then paste final Space URL here before submission |
+| 🤗 HuggingFace Space | `https://huggingface.co/spaces/<YOUR_HF_USERNAME>/agent-gauntlet` |
 | 📓 Training Notebook | [`notebooks/agent_gauntlet_grpo.ipynb`](notebooks/agent_gauntlet_grpo.ipynb) |
-| 📝 HF Blog Post | Draft in [`blog_post.md`](blog_post.md), publish final URL before submission |
-| 🎥 Demo Video (< 2 min) | Record before/after with `scripts/demo_before_after.py`, add final URL before submission |
-| 📊 Wandb Training Run | Set `WANDB_PROJECT`, run training, add final run URL before submission |
+| 📝 HF Blog Post | `<HF_BLOG_URL>` |
+| 🎥 Demo Video (< 2 min) | `<YOUTUBE_URL>` |
+| 📊 Wandb Training Run | `<WANDB_RUN_URL>` |
 | 🔁 Replay Validator | `python scripts/replay_episode.py --seed 42 --difficulty hard --runs 3` |
 | 🛡️ Red-team Reward Audit | `python scripts/redteam_reward_audit.py --episodes 20 --difficulty hard` |
 | 📈 Perturbation Benchmark | `python scripts/perturbation_benchmark.py --episodes 20 --difficulty hard` |
@@ -103,7 +103,7 @@ Reward = 0.30 × task_completion      # did agent finish correctly?
 
 Ground truth always known — we injected the failures ourselves. **12 independent, verifiable reward signals.**
 
-### Failure modes injected (13 types)
+### Failure modes injected (10 representative types)
 
 | Failure | HTTP Code | Correct Recovery |
 |---|---|---|
@@ -141,19 +141,19 @@ Ground truth always known — we injected the failures ourselves. **12 independe
 *Episode reward vs training step. Red dashed = random baseline (0.12). Blue = trained agent.*
 
 ![Per-component rewards](assets/component_rewards.png)
-*Individual reward components tracked separately via wandb `train/reward_func_0..8`.*
+*Individual reward components tracked separately via wandb `train/reward_func_0..11`.*
 
 ### Before vs After Training
 
-| Metric | Random Baseline | Trained (Easy) | Trained (Hard) |
-|---|---|---|---|
-| Task completion rate | 8% | 61% | 47% |
-| Failure detection rate | 0% | 67% | 71% |
-| Correct recovery rate | 0% | 54% | 63% |
-| Budget efficiency | 0.41 | 0.73 | 0.68 |
-| Avg episode reward | 0.12 | 0.58 | 0.51 |
+| Metric | Random Baseline | Smart Heuristic |
+|---|---|---|
+| Avg episode reward | 0.0828 | 0.9964 |
+| Task completion rate | 0.0% | 0.0% |
+| Failure detection rate | 0.0% | 1.30% |
+| Recovery rate | 0.0% | 4.0% |
+| Avg budget remaining | 0.0573 | 0.4760 |
 
-*50-episode evaluation. Plots in `assets/`. Add final wandb run URL here before submission.*
+*Latest run generated with `python scripts/demo_before_after.py --url http://127.0.0.1:8000 --episodes 50 --difficulty easy` (see `assets/results.json`).*
 
 ---
 
@@ -208,6 +208,9 @@ python scripts/redteam_reward_audit.py --episodes 20 --difficulty hard
 
 # Sim-to-prod perturbation report
 python scripts/perturbation_benchmark.py --episodes 20 --difficulty hard --out assets/perturbation_report.json
+
+# Judge preflight (minimum requirements + evidence checks)
+python scripts/judge_readiness.py
 ```
 
 ---
@@ -255,7 +258,7 @@ notebooks/
 
 ## Submission Checklist
 
-- [ ] Replace `amulyalakku` in README.md, blog_post.md, openenv.yaml, notebook
+- [ ] Replace `<YOUR_HF_USERNAME>` / `<YOUR_GITHUB_USER>` placeholders in docs + notebook
 - [ ] `openenv push` — environment live on HF Spaces
 - [ ] `python scripts/verify_environment.py` — all 14 checks pass
 - [ ] `python scripts/run_baseline.py` — baseline numbers recorded

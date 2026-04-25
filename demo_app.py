@@ -85,6 +85,7 @@ class DemoSession:
     def __init__(self):
         self.env: Optional[AgentGauntletEnv] = None
         self.sync_env = None
+        self._sync_ctx = None
         self.history: List[dict] = []
         self.episode_reward: float = 0.0
         self.step_count: int = 0
@@ -94,16 +95,19 @@ class DemoSession:
     def connect(self):
         if self.env is None:
             self.env = AgentGauntletEnv(base_url=ENV_URL)
-            self.sync_env = self.env.sync().__enter__()
+            self._sync_ctx = self.env.sync()
+            self.sync_env = self._sync_ctx.__enter__()
 
     def close(self):
         if self.sync_env is not None:
             try:
-                self.env.sync().__exit__(None, None, None)
+                if self._sync_ctx is not None:
+                    self._sync_ctx.__exit__(None, None, None)
             except Exception:
                 pass
             self.env = None
             self.sync_env = None
+            self._sync_ctx = None
 
 
 _session = DemoSession()

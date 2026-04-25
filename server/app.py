@@ -39,7 +39,6 @@ def health_check():
         "status": "healthy",
         "uptime_s": round(time.time() - _start_time, 1),
         "difficulty": _difficulty.value,
-        "episode_count": 0,
     }
 
 

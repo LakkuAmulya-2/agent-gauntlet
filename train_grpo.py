@@ -374,7 +374,7 @@ class AgentGauntletTRLEnv:
 # ---------------------------------------------------------------------------
 
 def reward_task_completion(environments, **kwargs) -> list[float]:
-    """Primary reward: task completed correctly. (40% weight)"""
+    """Primary reward: task completed correctly. (30% composite weight)"""
     rewards = []
     for env in environments:
         if env._last_obs and env._last_obs.is_done:
@@ -388,7 +388,7 @@ def reward_task_completion(environments, **kwargs) -> list[float]:
 
 
 def reward_failure_handling(environments, **kwargs) -> list[float | None]:
-    """Secondary reward: correctly handled production failures. (25% weight)"""
+    """Secondary reward: correctly handled production failures. (20% composite weight)"""
     rewards = []
     for env in environments:
         obs = env._last_obs
@@ -404,7 +404,7 @@ def reward_failure_handling(environments, **kwargs) -> list[float | None]:
 
 
 def reward_efficiency(environments, **kwargs) -> list[float]:
-    """Tertiary reward: stayed within budget and context limits. (20% weight)"""
+    """Tertiary reward: stayed within budget and context limits. (12% composite weight)"""
     rewards = []
     for env in environments:
         obs = env._last_obs

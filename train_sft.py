@@ -1,20 +1,9 @@
 """
-Agent Gauntlet — SFT Warm-up Script
+Agent Gauntlet - SFT Warm-up Script
 
 Guide Section 3: "do a little SFT first, then RL"
 Guide Section 16: "formatting priming" before GRPO
-
-This script fine-tunes the model on correct action format examples
-so it reliably produces valid JSON actions before GRPO training starts.
-
-Without this, the model may never produce a valid rollout in early GRPO
-steps, causing reward signal to be zero and learning to stall.
-
-Usage:
-    python train_sft.py --model-id Qwen/Qwen3-1.7B --output-dir outputs/sft-warmup
-    python train_grpo.py --model-id outputs/sft-warmup --difficulty easy
 """
-
 from __future__ import annotations
 
 import argparse
