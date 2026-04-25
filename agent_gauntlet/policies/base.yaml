@@ -1,0 +1,19 @@
+version: 1
+policies:
+  - name: PII_PROTECTION
+    forbidden_actions:
+      - export_raw_phi
+      - send_to_external_email
+      - log_card_number
+    required_controls:
+      - redact_pii
+      - encrypt_at_rest
+      - audit_log
+  - name: TOOL_SAFETY
+    forbidden_actions:
+      - delete_all_records
+      - overwrite_log
+      - disable_guardrails
+    required_controls:
+      - risk_assessment
+      - human_escalation_for_high_risk

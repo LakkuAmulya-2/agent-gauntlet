@@ -1,0 +1,158 @@
+spec_version: 1
+name: agent_gauntlet
+type: space
+runtime: gradio
+app: demo_app.py
+port: 7860
+web_path: /
+
+metadata:
+  name: "Agent Gauntlet"
+  version: "1.1.0"
+  description: >
+    88% of enterprise AI agents fail when moved from demo to production.
+    Agent Gauntlet trains LLMs to survive real production failure conditions with 12 verifiable reward signals:
+    API errors (500/429/401), cascading failures, context pressure, adversarial inputs,
+    resource overruns, semantic drift (HTTP 200 but wrong data), token cost budgets,
+    prompt injection / security breaches, compliance policy violations (GDPR/SOX/HIPAA/PCI),
+    SLA latency tracking, self-generated observability traces (Theme #4 self-improvement),
+    Theory of Mind stakeholder belief modeling (Theme #1), and long-horizon context compression
+    with checkpoint/resume for 200+ step tasks (Theme #2).
+    Covers all 5 hackathon themes with genuine implementations.
+  author: "Agent Gauntlet Team"
+  tags:
+    - openenv
+    - production-ai
+    - multi-agent
+    - long-horizon
+    - world-modeling
+    - self-improvement
+    - enterprise
+    - agentic-ai
+    - rl-environment
+    - hackathon-india-2026
+    - security
+    - compliance
+    - sla
+    - observability
+    - theory-of-mind
+    - context-compression
+
+# NOTE: Tool names below do NOT use reserved names (reset, step, state, close)
+# as per OpenEnv engineering requirements
+tools:
+  - name: execute_action
+    description: "Execute an agent action in the production environment"
+    input_schema:
+      type: object
+      properties:
+        action_type:
+          type: string
+          enum: [call_tool, detect_failure, recover, escalate, summarize_state,
+                 send_message, delegate_subtask, request_status, complete_task,
+                 generate_harder_variant, resolve_contradiction,
+                 refuse_injection, check_compliance, document_decision,
+                 generate_trace, inform_stakeholder, checkpoint_state,
+                 resume_from_checkpoint]
+        tool_name:
+          type: string
+          description: "Tool to call (for call_tool action)"
+        failure_detected:
+          type: string
+          description: "Failure type detected (for detect_failure action)"
+        recovery_strategy:
+          type: string
+          description: "Recovery strategy (for recover action)"
+        task_result:
+          type: string
+          description: "Task completion summary (for complete_task action)"
+        reasoning:
+          type: string
+          description: "Agent's reasoning for this action"
+        drift_detected:
+          type: string
+          description: "Description of detected semantic drift"
+        contradiction_resolution:
+          type: string
+          description: "Which agent is correct and why"
+        injection_refused:
+          type: boolean
+          description: "True when refusing a prompt injection (refuse_injection action)"
+        injection_description:
+          type: string
+          description: "Description of the detected injection"
+        compliance_check_result:
+          type: string
+          enum: [compliant, violation, alternative_found]
+          description: "Result of compliance check"
+        compliance_policy:
+          type: string
+          description: "Policy name being checked (e.g. GDPR_DATA_RETENTION)"
+        compliance_alternative:
+          type: string
+          description: "Compliant alternative action found"
+        decision_documented:
+          type: string
+          description: "Documentation of compliance decision"
+        diagnostic_trace:
+          type: string
+          description: "Self-generated diagnostic trace (root cause + improvement)"
+        transparency_decision:
+          type: string
+          enum: [inform, silent_fix, escalate]
+          description: "Theory of Mind transparency decision"
+        stakeholder_belief_update:
+          type: string
+          description: "What agent believes stakeholder thinks vs actual state"
+        checkpoint_data:
+          type: string
+          description: "Serialized checkpoint state for long-horizon tasks"
+        checkpoint_id:
+          type: string
+          description: "ID of checkpoint to resume from"
+        state_summary:
+          type: string
+          description: "Compressed state summary for context management"
+        idempotency_key:
+          type: string
+          description: "Stable key to guarantee idempotent retries under failures"
+        risk_acknowledged:
+          type: string
+          description: "Risk acknowledgment note for high-risk actions"
+        confidence_score:
+          type: number
+          description: "Agent self-reported confidence (0-1) for uncertainty calibration"
+      required: [action_type, reasoning]
+
+tasks:
+  - id: easy-data-pipeline
+    name: "Easy: Data Pipeline with API Failures"
+    description: "Complete a data pipeline with 1-2 injected API failures (500, 429). Token cost tracked."
+    difficulty: easy
+    domain: data_pipeline
+    max_steps: 22
+    reward_range: [-1.0, 1.0]
+
+  - id: medium-api-workflow
+    name: "Medium: API Workflow with Security + Compliance"
+    description: "API workflow with cascading failures, rate limits, auth errors, security breaches (10%), compliance violations (10%)."
+    difficulty: medium
+    domain: api_workflow
+    max_steps: 40
+    reward_range: [-1.0, 1.0]
+
+  - id: hard-multi-agent
+    name: "Hard: Multi-Agent + ToM + SLA + Observability"
+    description: "Coordinate 3 agents while handling adversarial inputs, security breaches (25%), compliance violations (20%), SLA breaches (20%), Theory of Mind events (20%)."
+    difficulty: hard
+    domain: multi_agent_coordination
+    max_steps: 62
+    reward_range: [-1.0, 1.0]
+
+  - id: expert-full-gauntlet
+    name: "Expert: Full Agent Gauntlet (200+ steps)"
+    description: "All 13 failure modes including security (40%), compliance (35%), SLA (30%), ToM (30%). Large-scale migration domain with context compression required."
+    difficulty: expert
+    domain: large_scale_migration
+    max_steps: 240
+    reward_range: [-1.0, 1.0]

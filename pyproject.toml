@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-gauntlet"
+version = "1.1.0"
+description = "Agent Gauntlet — OpenEnv RL environment for training agents to survive real deployment failures"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "BSD-3-Clause"}
+dependencies = [
+    "openenv-core>=0.2.1",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "pydantic>=2.0.0",
+    "gradio>=4.44.0",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[project.optional-dependencies]
+train = [
+    "trl[vllm]>=1.0.0",
+    "datasets>=2.18.0",
+    "wandb",
+    "matplotlib",
+    "numpy",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "httpx>=0.24.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_gauntlet*", "server*"]
