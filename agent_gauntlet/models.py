@@ -256,6 +256,9 @@ class TaskObservation:
     last_checkpoint_step: int = 0
     total_steps_including_resumed: int = 0
 
+    # Memory — past lessons from Forge kernel, visible to agent at episode start
+    past_lessons: List[str] = field(default_factory=list)
+
     @classmethod
     def model_json_schema(cls) -> Dict[str, Any]:
         """Compatibility shim for OpenEnv /schema endpoint."""

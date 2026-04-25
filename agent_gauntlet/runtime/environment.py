@@ -339,11 +339,37 @@ class AgentGauntletEnvironment(Environment):
             "load_profile": load_profile,
         }
 
+        # ── Memory injection: past lessons from Forge kernel ─────────────────
+        # Agent sees what it learned in previous episodes about this domain/failure type.
+        # This closes the "LLM + Tools + Memory" loop from the OpenEnv architecture slide.
+        past_lessons: List[str] = []
+        if self._kaizen is not None:
+            # Get top lessons for the failure types scheduled in this episode
+            scheduled_failure_types = list({
+                f.failure_type.value for f in self._task.failure_schedule
+            })
+            for ft in scheduled_failure_types[:3]:  # max 3 failure types
+                traces = self._kaizen.get_relevant_traces(ft, top_k=1)
+                for trace in traces:
+                    # Summarize to one line to avoid context bloat
+                    first_line = trace.split(".")[0].strip()
+                    if first_line and len(first_line) > 10:
+                        past_lessons.append(f"[{ft}] {first_line}")
+
+        # Build task_goal with memory context appended
+        task_goal_with_memory = self._task.goal
+        if past_lessons:
+            lessons_str = " | ".join(past_lessons)
+            task_goal_with_memory = (
+                f"{self._task.goal}\n\n"
+                f"MEMORY (from past episodes): {lessons_str}"
+            )
+
         return TaskObservation(
             task_description=self._task.description,
             task_domain=self._task.domain.value,
             available_tools=self._task.available_tools,
-            task_goal=self._task.goal,
+            task_goal=task_goal_with_memory,
             current_step=0,
             max_steps=self._task.max_steps,
             context_used_pct=0.0,
@@ -370,6 +396,7 @@ class AgentGauntletEnvironment(Environment):
             token_budget_usd=self._state.token_budget_usd,
             token_cost_used_usd=0.0,
             verifier_evidence=[],
+            past_lessons=past_lessons,
         )
 
     def step(self, action: AgentAction) -> TaskObservation:
