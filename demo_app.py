@@ -1180,15 +1180,27 @@ def _ui_perturbation_report(difficulty: str, episodes: int, seed: int, domain: s
 # ---------------------------------------------------------------------------
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks(
-        title="Agent Gauntlet 🏭⚡",
-        theme=gr.themes.Soft(primary_hue="blue", secondary_hue="slate"),
-        css="""
-        .reward-positive { color: #22c55e; font-weight: bold; }
-        .reward-negative { color: #ef4444; font-weight: bold; }
-        .status-bar { background: #1e293b; color: #94a3b8; padding: 8px 12px; border-radius: 6px; font-family: monospace; }
-        """,
-    ) as demo:
+    theme = gr.themes.Soft(
+        primary_hue="blue",
+        secondary_hue="indigo",
+        font=[gr.themes.GoogleFont("Source Sans Pro"), "ui-sans-serif", "system-ui", "sans-serif"],
+        font_mono=[gr.themes.GoogleFont("IBM Plex Mono"), "ui-monospace", "monospace"],
+    )
+
+    css = """
+    .reward-positive { color: #22c55e; font-weight: 600; }
+    .reward-negative { color: #ef4444; font-weight: 600; }
+    .status-bar {
+        background: #1e293b; color: #94a3b8;
+        padding: 8px 12px; border-radius: 6px;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 0.85rem;
+    }
+    .gradio-container { font-family: 'Source Sans Pro', ui-sans-serif, system-ui, sans-serif !important; }
+    h1, h2, h3 { font-family: 'Source Sans Pro', ui-sans-serif, system-ui, sans-serif !important; }
+    """
+
+    with gr.Blocks(title="Agent Gauntlet 🏭⚡") as demo:
 
         gr.Markdown("""
 # 🏭⚡ Agent Gauntlet
@@ -1675,4 +1687,21 @@ if __name__ == "__main__":
         server_port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
         share=False,
         show_error=True,
+        theme=gr.themes.Soft(
+            primary_hue="blue",
+            secondary_hue="indigo",
+            font=[gr.themes.GoogleFont("Source Sans Pro"), "ui-sans-serif", "system-ui", "sans-serif"],
+            font_mono=[gr.themes.GoogleFont("IBM Plex Mono"), "ui-monospace", "monospace"],
+        ),
+        css="""
+        .reward-positive { color: #22c55e; font-weight: 600; }
+        .reward-negative { color: #ef4444; font-weight: 600; }
+        .status-bar {
+            background: #1e293b; color: #94a3b8;
+            padding: 8px 12px; border-radius: 6px;
+            font-family: 'IBM Plex Mono', ui-monospace, monospace;
+            font-size: 0.85rem;
+        }
+        .gradio-container { font-family: 'Source Sans Pro', ui-sans-serif, system-ui, sans-serif !important; }
+        """,
     )
