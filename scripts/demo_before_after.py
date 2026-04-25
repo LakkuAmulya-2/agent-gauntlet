@@ -1,624 +1,236 @@
+# Agent Gauntlet - Results Generator
 """
-Agent Gauntlet — Before/After Demo Script
-
-Guide Section 19: "baseline model attempt → reward/verifier output → trained model attempt → measurable improvement"
-
+Run: python scripts/demo_before_after.py --generate-results
+Produces REAL reward curves from REAL environment episodes. No GPU needed.
 """
-# ============================================================
-# GENERATE_RESULTS: standalone results generator
-# Run: python scripts/demo_before_after.py --generate-results
-# Produces real reward curves from real environment episodes.
-# ============================================================
-
-import argparse as _argparse
+import argparse as _ap
 import sys as _sys
 
-_parser = _argparse.ArgumentParser(add_help=False)
-_parser.add_argument("--generate-results", action="store_true")
-_args, _remaining = _parser.parse_known_args()
+_p = _ap.ArgumentParser(add_help=False)
+_p.add_argument("--generate-results", action="store_true")
+_args, _ = _p.parse_known_args()
 
 if _args.generate_results:
-    import json, pathlib, random, time
+    import json, pathlib, random
     import numpy as np
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from agent_gauntlet.runtime.environment import AgentGauntletEnvironment
-    from agent_gauntlet.models import (
-        DifficultyLevel, AgentAction, ActionType, FailureType
-    )
+    from agent_gauntlet.models import AgentAction, ActionType, FailureType
     from agent_gauntlet.runtime.scenarios import RECOVERY_STRATEGIES
 
     pathlib.Path("assets").mkdir(exist_ok=True)
 
-    # ----------------------------------------------------------------
-    # Policy definitions
-    # ----------------------------------------------------------------
-
-    def random_policy(obs, _state):
+    def random_policy(obs, state):
         return AgentAction(
             action_type=ActionType.CALL_TOOL.value,
             tool_name=random.choice(obs.available_tools),
             reasoning="Random baseline",
-        ), _state
+        ), state
 
     def smart_policy(obs, state):
-        """Heuristic policy that detects and recovers from failures."""
-        last_failure = state.get("last_failure")
         step = state.get("step", 0)
         state["step"] = step + 1
+        last_failure = state.get("last_failure")
 
-        # Security breach
         if getattr(obs, "security_alert", None):
             state["last_failure"] = None
-            return AgentAction(
-                action_type=ActionType.REFUSE_INJECTION.value,
-                injection_refused=True,
-                injection_description=obs.security_alert[:80],
-                reasoning="Security alert — refusing injected instruction",
-            ), state
+            return AgentAction(action_type=ActionType.REFUSE_INJECTION.value,
+                injection_refused=True, injection_description=obs.security_alert[:80],
+                reasoning="Security alert - refusing"), state
 
-        # Compliance warning
         if getattr(obs, "compliance_warnings", []):
             policy = obs.active_policies[0] if obs.active_policies else "UNKNOWN"
             state["last_failure"] = None
-            return AgentAction(
-                action_type=ActionType.CHECK_COMPLIANCE.value,
-                compliance_check_result="violation",
-                compliance_policy=policy,
+            return AgentAction(action_type=ActionType.CHECK_COMPLIANCE.value,
+                compliance_check_result="violation", compliance_policy=policy,
                 compliance_alternative="use_compliant_alternative",
-                decision_documented=f"Policy {policy} violation — using compliant alternative",
-                reasoning=f"Compliance warning for {policy}",
-            ), state
+                decision_documented="Policy violation - compliant alternative",
+                reasoning="Compliance warning"), state
 
-        # Context pressure — checkpoint
         if obs.context_used_pct > 0.75 and not getattr(obs, "context_checkpoint_available", False):
-            return AgentAction(
-                action_type=ActionType.CHECKPOINT_STATE.value,
-                checkpoint_data=f'{{"completed": {len(obs.completed_checkpoints)}, "step": {obs.current_step}}}',
-                reasoning="Context >75% — checkpointing state",
-            ), state
+            return AgentAction(action_type=ActionType.CHECKPOINT_STATE.value,
+                checkpoint_data='{"step":' + str(obs.current_step) + '}',
+                reasoning="Context >75% - checkpointing"), state
 
-        # Detect failure
         if obs.last_tool_result and not obs.last_tool_result.success:
             ft = obs.last_tool_result.failure_type
             if ft != "none" and last_failure != ft:
                 state["last_failure"] = ft
-                return AgentAction(
-                    action_type=ActionType.DETECT_FAILURE.value,
-                    failure_detected=ft,
-                    reasoning=f"Tool failed HTTP {obs.last_tool_result.status_code}",
-                ), state
+                return AgentAction(action_type=ActionType.DETECT_FAILURE.value,
+                    failure_detected=ft, reasoning="Tool failed"), state
 
-        # Recover
         if last_failure:
             ft_enum = next((f for f in FailureType if f.value == last_failure), FailureType.API_500)
             recovery = RECOVERY_STRATEGIES.get(ft_enum, "retry_with_backoff")
             state["last_failure"] = None
-            return AgentAction(
-                action_type=ActionType.RECOVER.value,
-                recovery_strategy=recovery,
-                reasoning=f"Applying {recovery}",
-            ), state
+            return AgentAction(action_type=ActionType.RECOVER.value,
+                recovery_strategy=recovery, reasoning="Applying " + recovery), state
 
-        # Generate trace after failure
         if obs.consecutive_failures > 0:
-            return AgentAction(
-                action_type=ActionType.GENERATE_TRACE.value,
-                diagnostic_trace=(
-                    f"Step {obs.current_step} failed because of consecutive failures. "
-                    "Root cause: upstream service instability. "
-                    "Next time: add exponential backoff between retries."
-                ),
-                reasoning="Generating diagnostic trace after failure",
-            ), state
+            return AgentAction(action_type=ActionType.GENERATE_TRACE.value,
+                diagnostic_trace="Step " + str(obs.current_step) + " failed. Root cause: upstream instability. Next time: add backoff.",
+                reasoning="Generating trace after failure"), state
 
-        # Escalate on 3+ consecutive failures
         if obs.consecutive_failures >= 3:
-            return AgentAction(
-                action_type=ActionType.ESCALATE.value,
-                escalation_reason="3+ consecutive failures",
-                reasoning="Cannot recover automatically",
-            ), state
+            return AgentAction(action_type=ActionType.ESCALATE.value,
+                escalation_reason="3+ consecutive failures", reasoning="Cannot recover"), state
 
-        # Complete near end
         if obs.current_step >= obs.max_steps - 3 and obs.consecutive_failures == 0:
-            return AgentAction(
-                action_type=ActionType.COMPLETE_TASK.value,
-                task_result=f"Completed {len(obs.completed_checkpoints)} of {len(obs.completed_checkpoints) + len(obs.pending_objectives)} objectives",
-                reasoning="Near end of episode",
-            ), state
+            return AgentAction(action_type=ActionType.COMPLETE_TASK.value,
+                task_result="Completed " + str(len(obs.completed_checkpoints)) + " objectives",
+                reasoning="Near end"), state
 
-        # Default: call next tool
         tool_idx = step % len(obs.available_tools)
-        return AgentAction(
-            action_type=ActionType.CALL_TOOL.value,
-            tool_name=obs.available_tools[tool_idx],
-            reasoning=f"Executing step {step}",
-        ), state
+        return AgentAction(action_type=ActionType.CALL_TOOL.value,
+            tool_name=obs.available_tools[tool_idx], reasoning="Step " + str(step)), state
 
-    # ----------------------------------------------------------------
-    # Episode runner
-    # ----------------------------------------------------------------
-
-    def run_episodes(policy_fn, n_episodes, difficulty, seed_offset=0):
+    def run_episodes(policy_fn, n, difficulty, seed_offset=0):
         results = []
-        for ep in range(n_episodes):
-            env = AgentGauntletEnvironment(
-                seed=seed_offset + ep,
-                adaptive_curriculum=False,
-            )
+        for ep in range(n):
+            env = AgentGauntletEnvironment(seed=seed_offset + ep, adaptive_curriculum=False)
             obs = env.reset(difficulty=difficulty)
-            ep_reward = 0.0
-            step_rewards = []
-            state = {}
+            ep_reward, state = 0.0, {}
             while not obs.is_done:
                 action, state = policy_fn(obs, state)
                 obs = env.step(action)
-                r = getattr(obs, "_reward", 0.0)
-                ep_reward += r
-                step_rewards.append(r)
+                ep_reward += getattr(obs, "_reward", 0.0)
             meta = obs.metadata or {}
+            det = meta.get("failures_detected_correctly", 0)
+            tot = meta.get("total_injected_failures", 0)
             results.append({
-                "episode": ep,
-                "total_reward": ep_reward,
-                "step_rewards": step_rewards,
-                "steps": obs.current_step,
+                "reward": ep_reward,
                 "completed": obs.termination_reason == "task_completed",
-                "failures_detected": meta.get("failures_detected_correctly", 0),
-                "total_failures": meta.get("total_injected_failures", 0),
-                "successful_recoveries": meta.get("successful_recoveries", 0),
-                "recovery_attempts": meta.get("recovery_attempts", 1),
-                "budget_remaining": obs.budget_remaining,
+                "detected": det, "total_failures": tot,
+                "recoveries": meta.get("successful_recoveries", 0),
+                "recovery_attempts": max(1, meta.get("recovery_attempts", 1)),
+                "budget": obs.budget_remaining, "steps": obs.current_step,
                 "security_refused": meta.get("injections_refused", 0),
                 "compliance_detected": meta.get("compliance_violations_detected", 0),
-                "sla_breaches": meta.get("sla_breaches", 0),
-                "traces_generated": meta.get("diagnostic_traces_count", 0),
+                "traces": meta.get("diagnostic_traces_count", 0),
             })
-            print(f"  ep {ep+1:2d}: reward={ep_reward:+.4f} steps={obs.current_step:3d} "
-                  f"done={obs.termination_reason} "
-                  f"det={meta.get('failures_detected_correctly',0)}/{meta.get('total_injected_failures',0)}")
+            print("  ep{:2d}: reward={:+.4f}  done={:15s}  det={}/{}".format(
+                ep + 1, ep_reward, obs.termination_reason[:15], det, tot))
         return results
-
-    # ----------------------------------------------------------------
-    # Run both policies
-    # ----------------------------------------------------------------
-
-    N_EPISODES = 50
-    DIFFICULTY = "easy"
-
-    print(f"\n{'='*60}")
-    print(f"Agent Gauntlet — Real Results Generation")
-    print(f"Episodes: {N_EPISODES} | Difficulty: {DIFFICULTY}")
-    print(f"{'='*60}\n")
-
-    print("Running RANDOM baseline...")
-    random.seed(0)
-    random_results = run_episodes(random_policy, N_EPISODES, DIFFICULTY, seed_offset=0)
-
-    print("\nRunning SMART (heuristic) policy...")
-    smart_results = run_episodes(smart_policy, N_EPISODES, DIFFICULTY, seed_offset=1000)
-
-    # ----------------------------------------------------------------
-    # Compute summary metrics
-    # ----------------------------------------------------------------
 
     def summarize(results):
         n = len(results)
-        total_rewards = [r["total_reward"] for r in results]
+        rewards = [r["reward"] for r in results]
         return {
-            "avg_reward": sum(total_rewards) / n,
-            "std_reward": float(np.std(total_rewards)),
+            "avg_reward": sum(rewards) / n,
+            "std_reward": float(np.std(rewards)),
             "task_completion_rate": sum(r["completed"] for r in results) / n,
-            "failure_detection_rate": (
-                sum(r["failures_detected"] for r in results) /
-                max(1, sum(r["total_failures"] for r in results))
-            ),
-            "recovery_rate": (
-                sum(r["successful_recoveries"] for r in results) /
-                max(1, sum(r["recovery_attempts"] for r in results))
-            ),
-            "avg_budget_remaining": sum(r["budget_remaining"] for r in results) / n,
+            "failure_detection_rate": sum(r["detected"] for r in results) / max(1, sum(r["total_failures"] for r in results)),
+            "recovery_rate": sum(r["recoveries"] for r in results) / max(1, sum(r["recovery_attempts"] for r in results)),
+            "avg_budget_remaining": sum(r["budget"] for r in results) / n,
             "avg_steps": sum(r["steps"] for r in results) / n,
-            "security_refusal_rate": (
-                sum(r["security_refused"] for r in results) / max(1, n)
-            ),
-            "compliance_detection_rate": (
-                sum(r["compliance_detected"] for r in results) / max(1, n)
-            ),
-            "avg_traces": sum(r["traces_generated"] for r in results) / n,
+            "security_refusal_rate": sum(r["security_refused"] for r in results) / max(1, n),
+            "compliance_detection_rate": sum(r["compliance_detected"] for r in results) / max(1, n),
+            "avg_traces": sum(r["traces"] for r in results) / n,
+            "all_rewards": rewards,
         }
 
-    rand_summary = summarize(random_results)
-    smart_summary = summarize(smart_results)
+    N, DIFF = 50, "easy"
+    print("=" * 60)
+    print("Agent Gauntlet - Real Results ({} episodes, {})".format(N, DIFF))
+    print("=" * 60)
 
-    print(f"\n{'='*60}")
-    print("RESULTS SUMMARY")
-    print(f"{'='*60}")
-    print(f"{'Metric':<35} {'Random':>10} {'Smart':>10}")
-    print(f"{'-'*55}")
-    metrics = [
-        ("Avg episode reward", "avg_reward", ".4f"),
-        ("Task completion rate", "task_completion_rate", ".1%"),
-        ("Failure detection rate", "failure_detection_rate", ".1%"),
+    print("\nRANDOM baseline...")
+    random.seed(0)
+    rand_r = run_episodes(random_policy, N, DIFF, 0)
+
+    print("\nSMART heuristic...")
+    smart_r = run_episodes(smart_policy, N, DIFF, 1000)
+
+    rs, ss = summarize(rand_r), summarize(smart_r)
+
+    print("\n" + "=" * 60)
+    for label, key, fmt in [
+        ("Avg reward", "avg_reward", ".4f"),
+        ("Task completion", "task_completion_rate", ".1%"),
+        ("Failure detection", "failure_detection_rate", ".1%"),
         ("Recovery rate", "recovery_rate", ".1%"),
-        ("Avg budget remaining", "avg_budget_remaining", ".2f"),
-        ("Avg steps", "avg_steps", ".1f"),
-        ("Security refusal rate", "security_refusal_rate", ".2f"),
-        ("Compliance detection rate", "compliance_detection_rate", ".2f"),
-        ("Avg diagnostic traces", "avg_traces", ".2f"),
-    ]
-    for label, key, fmt in metrics:
-        rv = format(rand_summary[key], fmt)
-        sv = format(smart_summary[key], fmt)
-        print(f"  {label:<33} {rv:>10} {sv:>10}")
+        ("Budget remaining", "avg_budget_remaining", ".2f"),
+        ("Security refusal", "security_refusal_rate", ".2f"),
+        ("Compliance detect", "compliance_detection_rate", ".2f"),
+        ("Avg traces", "avg_traces", ".2f"),
+    ]:
+        print("  {:<25} {:>10} {:>10}".format(label, format(rs[key], fmt), format(ss[key], fmt)))
 
-    # ----------------------------------------------------------------
-    # Plot 1: Reward curves (rolling average)
-    # ----------------------------------------------------------------
-
-    rand_rewards = [r["total_reward"] for r in random_results]
-    smart_rewards = [r["total_reward"] for r in smart_results]
-    episodes = list(range(1, N_EPISODES + 1))
-
-    window = 10
-    def rolling(vals, w):
-        return [np.mean(vals[max(0,i-w):i+1]) for i in range(len(vals))]
-
-    rand_smooth = rolling(rand_rewards, window)
-    smart_smooth = rolling(smart_rewards, window)
+    # Plot 1: reward curves
+    eps = list(range(1, N + 1))
+    w = 10
+    roll = lambda v: [float(np.mean(v[max(0,i-w):i+1])) for i in range(len(v))]
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    # Left: reward curves
-    axes[0].plot(episodes, rand_rewards, alpha=0.25, color="gray")
-    axes[0].plot(episodes, rand_smooth, color="gray", linewidth=2, label=f"Random baseline (avg={rand_summary['avg_reward']:.3f})")
-    axes[0].plot(episodes, smart_rewards, alpha=0.25, color="steelblue")
-    axes[0].plot(episodes, smart_smooth, color="steelblue", linewidth=2, label=f"Smart heuristic (avg={smart_summary['avg_reward']:.3f})")
-    axes[0].axhline(y=rand_summary["avg_reward"], color="gray", linestyle="--", alpha=0.5)
+    axes[0].plot(eps, rs["all_rewards"], alpha=0.2, color="gray")
+    axes[0].plot(eps, roll(rs["all_rewards"]), color="gray", lw=2.5,
+                 label="Random (avg={:.3f})".format(rs["avg_reward"]))
+    axes[0].plot(eps, ss["all_rewards"], alpha=0.2, color="steelblue")
+    axes[0].plot(eps, roll(ss["all_rewards"]), color="steelblue", lw=2.5,
+                 label="Smart heuristic (avg={:.3f})".format(ss["avg_reward"]))
+    axes[0].axhline(y=rs["avg_reward"], color="gray", ls="--", alpha=0.4)
     axes[0].set_xlabel("Episode")
     axes[0].set_ylabel("Episode reward")
-    axes[0].set_title("Agent Gauntlet — Episode Reward\n(Random vs Smart Heuristic, easy difficulty)")
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
+    axes[0].set_title("Agent Gauntlet - Episode Reward\n(Random vs Smart Heuristic, easy)")
+    axes[0].legend(); axes[0].grid(True, alpha=0.3)
 
-    # Right: per-metric comparison bar chart
-    bar_metrics = [
-        ("Task\ncompletion", "task_completion_rate"),
-        ("Failure\ndetection", "failure_detection_rate"),
-        ("Recovery\nrate", "recovery_rate"),
-        ("Budget\nremaining", "avg_budget_remaining"),
-    ]
-    x = np.arange(len(bar_metrics))
-    width = 0.35
-    rand_vals = [rand_summary[k] for _, k in bar_metrics]
-    smart_vals = [smart_summary[k] for _, k in bar_metrics]
-    axes[1].bar(x - width/2, rand_vals, width, label="Random baseline", color="gray", alpha=0.8)
-    axes[1].bar(x + width/2, smart_vals, width, label="Smart heuristic", color="steelblue", alpha=0.8)
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels([m for m, _ in bar_metrics])
+    bm = [("Task\ncompletion","task_completion_rate"),("Failure\ndetection","failure_detection_rate"),
+          ("Recovery\nrate","recovery_rate"),("Budget\nremaining","avg_budget_remaining")]
+    x = np.arange(len(bm)); wd = 0.35
+    axes[1].bar(x-wd/2, [rs[k] for _,k in bm], wd, label="Random", color="gray", alpha=0.8)
+    axes[1].bar(x+wd/2, [ss[k] for _,k in bm], wd, label="Smart", color="steelblue", alpha=0.8)
+    axes[1].set_xticks(x); axes[1].set_xticklabels([m for m,_ in bm])
     axes[1].set_ylabel("Rate / Score")
     axes[1].set_title("Per-Metric Comparison\n(Random vs Smart Heuristic)")
-    axes[1].legend()
-    axes[1].grid(True, alpha=0.3, axis="y")
-    axes[1].set_ylim(0, 1.05)
-
+    axes[1].legend(); axes[1].grid(True, alpha=0.3, axis="y"); axes[1].set_ylim(0, 1.05)
     plt.tight_layout()
     plt.savefig("assets/reward_curves.png", dpi=150, bbox_inches="tight")
     plt.close()
     print("\nSaved: assets/reward_curves.png")
 
-    # ----------------------------------------------------------------
-    # Plot 2: Per-component reward breakdown
-    # ----------------------------------------------------------------
-
-    # Collect step-level rewards per episode for component analysis
-    # We use the smart policy results and break down by episode outcome
-    completed_rewards = [r["total_reward"] for r in smart_results if r["completed"]]
-    failed_rewards = [r["total_reward"] for r in smart_results if not r["completed"]]
-    detected_rewards = [r["total_reward"] for r in smart_results if r["failures_detected"] > 0]
-    missed_rewards = [r["total_reward"] for r in smart_results if r["failures_detected"] == 0 and r["total_failures"] > 0]
-
+    # Plot 2: component breakdown
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    # Left: reward distribution by outcome
-    data_groups = []
-    labels_groups = []
-    if completed_rewards:
-        data_groups.append(completed_rewards)
-        labels_groups.append(f"Task completed\n(n={len(completed_rewards)})")
-    if failed_rewards:
-        data_groups.append(failed_rewards)
-        labels_groups.append(f"Task failed\n(n={len(failed_rewards)})")
-    if detected_rewards:
-        data_groups.append(detected_rewards)
-        labels_groups.append(f"Failures detected\n(n={len(detected_rewards)})")
-    if missed_rewards:
-        data_groups.append(missed_rewards)
-        labels_groups.append(f"Failures missed\n(n={len(missed_rewards)})")
-
-    if data_groups:
-        bp = axes[0].boxplot(data_groups, labels=labels_groups, patch_artist=True)
-        colors = ["steelblue", "tomato", "mediumseagreen", "orange"]
-        for patch, color in zip(bp["boxes"], colors[:len(data_groups)]):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.7)
+    groups = [(r["reward"] for r in smart_r if r["completed"]),
+              (r["reward"] for r in smart_r if not r["completed"]),
+              (r["reward"] for r in smart_r if r["detected"] > 0),
+              (r["reward"] for r in smart_r if r["detected"] == 0 and r["total_failures"] > 0)]
+    labels = ["Completed","Failed","Det. failures","Missed failures"]
+    colors = ["steelblue","tomato","mediumseagreen","orange"]
+    data_g = [list(g) for g in groups]
+    valid = [(d,l,c) for d,l,c in zip(data_g,labels,colors) if d]
+    if valid:
+        bp = axes[0].boxplot([d for d,_,_ in valid], labels=[l for _,l,_ in valid], patch_artist=True)
+        for patch, (_,_,c) in zip(bp["boxes"], valid):
+            patch.set_facecolor(c); patch.set_alpha(0.7)
     axes[0].set_ylabel("Episode reward")
-    axes[0].set_title("Reward Distribution by Episode Outcome\n(Smart Heuristic, easy difficulty)")
+    axes[0].set_title("Reward by Outcome\n(Smart Heuristic, easy)")
     axes[0].grid(True, alpha=0.3, axis="y")
 
-    # Right: capability metrics comparison
-    cap_labels = ["Security\nRefusal", "Compliance\nDetection", "Avg\nTraces", "Budget\nEfficiency"]
-    rand_cap = [
-        rand_summary["security_refusal_rate"],
-        rand_summary["compliance_detection_rate"],
-        min(1.0, rand_summary["avg_traces"] / 3.0),
-        rand_summary["avg_budget_remaining"],
-    ]
-    smart_cap = [
-        smart_summary["security_refusal_rate"],
-        smart_summary["compliance_detection_rate"],
-        min(1.0, smart_summary["avg_traces"] / 3.0),
-        smart_summary["avg_budget_remaining"],
-    ]
-    x2 = np.arange(len(cap_labels))
-    axes[1].bar(x2 - width/2, rand_cap, width, label="Random baseline", color="gray", alpha=0.8)
-    axes[1].bar(x2 + width/2, smart_cap, width, label="Smart heuristic", color="steelblue", alpha=0.8)
-    axes[1].set_xticks(x2)
-    axes[1].set_xticklabels(cap_labels)
-    axes[1].set_ylabel("Rate / Normalized score")
-    axes[1].set_title("New Capability Metrics\n(Security · Compliance · Observability · Efficiency)")
-    axes[1].legend()
-    axes[1].grid(True, alpha=0.3, axis="y")
-    axes[1].set_ylim(0, 1.05)
-
+    cl = ["Security\nRefusal","Compliance\nDetect","Diagnostic\nTraces","Budget\nEfficiency"]
+    rc = [rs["security_refusal_rate"],rs["compliance_detection_rate"],min(1.0,rs["avg_traces"]/3),rs["avg_budget_remaining"]]
+    sc = [ss["security_refusal_rate"],ss["compliance_detection_rate"],min(1.0,ss["avg_traces"]/3),ss["avg_budget_remaining"]]
+    x2 = np.arange(len(cl))
+    axes[1].bar(x2-wd/2, rc, wd, label="Random", color="gray", alpha=0.8)
+    axes[1].bar(x2+wd/2, sc, wd, label="Smart", color="steelblue", alpha=0.8)
+    axes[1].set_xticks(x2); axes[1].set_xticklabels(cl)
+    axes[1].set_ylabel("Rate / Score")
+    axes[1].set_title("New Capability Metrics\n(Security - Compliance - Observability)")
+    axes[1].legend(); axes[1].grid(True, alpha=0.3, axis="y"); axes[1].set_ylim(0, 1.05)
     plt.tight_layout()
     plt.savefig("assets/component_rewards.png", dpi=150, bbox_inches="tight")
     plt.close()
     print("Saved: assets/component_rewards.png")
 
-    # ----------------------------------------------------------------
-    # Save raw results JSON for README
-    # ----------------------------------------------------------------
-
-    results_data = {
+    out = {
         "generated_at": __import__("datetime").datetime.now().isoformat(),
-        "n_episodes": N_EPISODES,
-        "difficulty": DIFFICULTY,
-        "random_baseline": rand_summary,
-        "smart_heuristic": smart_summary,
-        "improvement": {
-            k: smart_summary[k] - rand_summary[k]
-            for k in rand_summary
-        }
+        "n_episodes": N, "difficulty": DIFF,
+        "random_baseline": {k: v for k,v in rs.items() if k != "all_rewards"},
+        "smart_heuristic": {k: v for k,v in ss.items() if k != "all_rewards"},
     }
-    pathlib.Path("assets/results.json").write_text(
-        json.dumps(results_data, indent=2), encoding="utf-8"
-    )
+    pathlib.Path("assets/results.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
     print("Saved: assets/results.json")
-
-    print(f"\n{'='*60}")
-    print("DONE — plots saved to assets/")
-    print(f"  reward_curves.png   — episode reward comparison")
-    print(f"  component_rewards.png — capability metrics breakdown")
-    print(f"  results.json        — raw numbers for README")
-    print(f"{'='*60}")
+    print("\nDONE - {} real episodes, plots in assets/".format(N))
     _sys.exit(0)
 
-Generates the demo comparison judges want to see:
-1. Untrained model on a task with failures
-2. Trained model on the same task
-3. Side-by-side metrics
-
-Usage:
-    python scripts/demo_before_after.py \
-        --trained-model outputs/gauntlet-easy-20260425 \
-        --url http://localhost:8000 \
-        --seed 42
-"""
-
-from __future__ import annotations
-
-import argparse
-import json
-from typing import Dict, List
-
-from agent_gauntlet import AgentAction, AgentGauntletEnv
-from agent_gauntlet.models import ActionType
-
-
-def run_episode_with_model(
-    model_dir: str,
-    env_url: str,
-    seed: int,
-    difficulty: str,
-    label: str,
-) -> Dict:
-    """Run one episode with a model and collect metrics."""
-    try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        import torch
-    except ImportError:
-        print("transformers not installed")
-        return {}
-
-    from train_grpo import SYSTEM_PROMPT
-
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_dir, torch_dtype=torch.float16, device_map="auto"
-    )
-    model.eval()
-
-    metrics = {
-        "label": label,
-        "total_reward": 0.0,
-        "task_completed": False,
-        "failures_detected": 0,
-        "failures_missed": 0,
-        "valid_json_rate": 0.0,
-        "steps_taken": 0,
-        "budget_remaining": 1.0,
-        "actions": [],
-    }
-
-    valid_json_count = 0
-    total_steps = 0
-
-    with AgentGauntletEnv(base_url=env_url).sync() as env:
-        result = env.reset(difficulty=difficulty, seed=seed)
-        obs = result.observation
-
-        print(f"\n[{label}] Task: {obs.task_description[:80]}...")
-
-        for step in range(obs.max_steps):
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": (
-                    f"TASK: {obs.task_description}\n"
-                    f"TOOLS: {', '.join(obs.available_tools)}\n"
-                    f"Step {obs.current_step}/{obs.max_steps} | "
-                    f"Budget: {obs.api_calls_made}/{obs.api_calls_budget} | "
-                    f"Context: {obs.context_used_pct:.0%}"
-                    + (f"\nLast error: {obs.recent_errors[-1]}" if obs.recent_errors else "")
-                )}
-            ]
-
-            prompt = tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True,
-                tokenize=False, enable_thinking=False
-            )
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs, max_new_tokens=200,
-                    temperature=0.1, do_sample=True,
-                    pad_token_id=tokenizer.eos_token_id,
-                )
-
-            generated = tokenizer.decode(
-                outputs[0][inputs.input_ids.shape[1]:],
-                skip_special_tokens=True
-            ).strip()
-
-            total_steps += 1
-            try:
-                action_data = json.loads(generated)
-                valid_json_count += 1
-                action = AgentAction(
-                    action_type=action_data.get("action_type", "call_tool"),
-                    tool_name=action_data.get("tool_name"),
-                    reasoning=action_data.get("reasoning", ""),
-                    failure_detected=action_data.get("failure_detected"),
-                    recovery_strategy=action_data.get("recovery_strategy"),
-                    task_result=action_data.get("task_result"),
-                )
-            except json.JSONDecodeError:
-                action = AgentAction(
-                    action_type=ActionType.CALL_TOOL.value,
-                    tool_name=obs.available_tools[0] if obs.available_tools else "unknown",
-                    reasoning="fallback",
-                )
-
-            result = env.step(action)
-            metrics["total_reward"] += result.reward
-            metrics["actions"].append(action.action_type)
-
-            # Track failure handling
-            if obs.last_tool_result and not obs.last_tool_result.success:
-                if action.failure_detected:
-                    metrics["failures_detected"] += 1
-                else:
-                    metrics["failures_missed"] += 1
-
-            obs = result.observation
-            if obs.is_done:
-                metrics["task_completed"] = obs.termination_reason == "task_completed"
-                metrics["budget_remaining"] = obs.budget_remaining
-                break
-
-    metrics["steps_taken"] = total_steps
-    metrics["valid_json_rate"] = valid_json_count / max(1, total_steps)
-    return metrics
-
-
-def print_comparison(before: Dict, after: Dict):
-    """Print side-by-side comparison for demo."""
-    print(f"\n{'='*70}")
-    print(f"BEFORE vs AFTER - Agent Gauntlet Demo")
-    print(f"{'='*70}")
-    print(f"{'Metric':<30} {'Before (untrained)':<22} {'After (trained)':<22}")
-    print(f"{'-'*70}")
-
-    metrics = [
-        ("Total reward", "total_reward", ".4f"),
-        ("Task completed", "task_completed", ""),
-        ("Failures detected", "failures_detected", "d"),
-        ("Failures missed", "failures_missed", "d"),
-        ("Valid JSON rate", "valid_json_rate", ".1%"),
-        ("Steps taken", "steps_taken", "d"),
-        ("Budget remaining", "budget_remaining", ".2f"),
-    ]
-
-    for label, key, fmt in metrics:
-        b_val = before.get(key, "N/A")
-        a_val = after.get(key, "N/A")
-        if fmt and b_val != "N/A":
-            b_str = format(b_val, fmt)
-            a_str = format(a_val, fmt)
-        else:
-            b_str = str(b_val)
-            a_str = str(a_val)
-
-        # Add improvement indicator
-        improved = ""
-        if key in ("total_reward", "failures_detected", "valid_json_rate", "budget_remaining"):
-            if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
-                improved = " ↑" if a_val > b_val else (" ↓" if a_val < b_val else " =")
-        elif key in ("failures_missed",):
-            if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
-                improved = " ↓" if a_val < b_val else (" ↑" if a_val > b_val else " =")
-
-        print(f"{label:<30} {b_str:<22} {a_str + improved:<22}")
-
-    print(f"{'='*70}")
-
-    # Action sequence comparison
-    print(f"\nAction sequences:")
-    print(f"  Before: {' → '.join(before.get('actions', [])[:8])}")
-    print(f"  After:  {' → '.join(after.get('actions', [])[:8])}")
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--trained-model", required=True)
-    parser.add_argument("--base-model", default="Qwen/Qwen3-1.7B",
-                        help="Untrained base model for comparison")
-    parser.add_argument("--url", default="http://localhost:8000")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Same seed = same task for fair comparison")
-    parser.add_argument("--difficulty", default="easy")
-    args = parser.parse_args()
-
-    print("Running before/after comparison...")
-    print(f"Seed: {args.seed} (same task for both models)")
-
-    before = run_episode_with_model(
-        args.base_model, args.url, args.seed, args.difficulty, "Untrained"
-    )
-    after = run_episode_with_model(
-        args.trained_model, args.url, args.seed, args.difficulty, "Trained"
-    )
-
-    print_comparison(before, after)
-
-    # Save for README
-    import json as _json
-    with open("demo_results.json", "w") as f:
-        _json.dump({"before": before, "after": after}, f, indent=2)
-    print("\nSaved to demo_results.json — add numbers to README")
-
-
-if __name__ == "__main__":
-    main()
