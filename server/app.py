@@ -56,6 +56,34 @@ def kaizen_sft_dataset():
     return {"examples": env.export_sft_dataset()}
 
 
+@app.get("/adversarial/stats")
+def adversarial_stats():
+    """Adversarial generator stats — top breaking combos, solver failure rate."""
+    from agent_gauntlet.runtime.adversarial import get_global_generator
+    return get_global_generator().stats()
+
+
+@app.get("/counterfactual/stats")
+def counterfactual_stats():
+    """Counterfactual replay stats — avg regret, high-regret steps."""
+    from agent_gauntlet.runtime.counterfactual import get_global_engine
+    return get_global_engine().stats()
+
+
+@app.get("/critic/report")
+def critic_report():
+    """Live reward hacking detector report — patterns caught, penalties applied."""
+    env = _env_factory()
+    return env.critic_report
+
+
+@app.post("/pareto/score")
+def pareto_score(metadata: dict):
+    """Compute Pareto scores (capability, safety, speed) for episode metadata."""
+    env = _env_factory()
+    return env.pareto_scores(metadata)
+
+
 _ENABLE_WEB = os.environ.get("ENABLE_WEB_INTERFACE", "true").lower() != "false"
 if _ENABLE_WEB:
     try:

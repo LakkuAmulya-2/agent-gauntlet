@@ -1179,6 +1179,270 @@ def _ui_perturbation_report(difficulty: str, episodes: int, seed: int, domain: s
     ])
 
 
+
+# ---------------------------------------------------------------------------
+# Adversarial Task Generator demo
+# ---------------------------------------------------------------------------
+
+def _demo_adversarial(difficulty: str) -> str:
+    """Show adversarial generator stats and top breaking combos."""
+    try:
+        import requests as _req
+        r = _req.get(f"{ENV_URL}/adversarial/stats", timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+        else:
+            raise ValueError(f"HTTP {r.status_code}")
+    except Exception:
+        from agent_gauntlet.runtime.adversarial import get_global_generator
+        from agent_gauntlet.runtime.environment import AgentGauntletEnvironment
+        from agent_gauntlet.models import AgentAction, ActionType as _AT
+        gen = get_global_generator()
+        env = AgentGauntletEnvironment(default_difficulty=difficulty, kaizen=False)
+        for _ in range(5):
+            obs = env.reset(difficulty=difficulty)
+            for s in range(min(obs.max_steps, 15)):
+                obs = env.step(AgentAction(
+                    action_type=_AT.CALL_TOOL.value,
+                    tool_name=obs.available_tools[s % len(obs.available_tools)],
+                    reasoning=f"adversarial demo step {s}",
+                ))
+                if obs.is_done:
+                    break
+        data = gen.stats()
+
+    lines = [
+        "### ⚔️ Adversarial Task Generator",
+        "",
+        f"**Total proposals:** `{data.get('total_proposals', 0)}`",
+        f"**Solver failure rate:** `{data.get('solver_failure_rate', 0.0):.1%}`",
+        f"**Unique combos discovered:** `{data.get('unique_combos_discovered', 0)}`",
+        "",
+        "**Top failure combos that break agents most reliably:**",
+        "",
+    ]
+    for i, combo in enumerate(data.get("top_breaking_combos", [])[:5], 1):
+        rate = combo.get("failure_rate", 0.0)
+        types = " + ".join(combo.get("combo", []))
+        attempts = combo.get("attempts", 0)
+        lines.append(f"{i}. `{types}` — breaks `{rate:.0%}` of agents ({attempts} attempts)")
+    lines += [
+        "",
+        "**How it works:** Generator proposes failure combos (epsilon-greedy bandit). "
+        "Solver tries to complete tasks. Generator reward = solver failure rate. "
+        "Arms race → infinite novel challenges.",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Counterfactual Replay demo
+# ---------------------------------------------------------------------------
+
+def _demo_counterfactual(difficulty: str) -> str:
+    """Show counterfactual replay analysis."""
+    try:
+        import requests as _req
+        r = _req.get(f"{ENV_URL}/counterfactual/stats", timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+        else:
+            raise ValueError(f"HTTP {r.status_code}")
+    except Exception:
+        from agent_gauntlet.runtime.counterfactual import get_global_engine
+        from agent_gauntlet.runtime.environment import AgentGauntletEnvironment
+        from agent_gauntlet.models import AgentAction, ActionType as _AT
+        env = AgentGauntletEnvironment(default_difficulty=difficulty, kaizen=False)
+        for _ in range(3):
+            obs = env.reset(difficulty=difficulty)
+            for s in range(min(obs.max_steps, 20)):
+                obs = env.step(AgentAction(
+                    action_type=_AT.CALL_TOOL.value,
+                    tool_name=obs.available_tools[s % len(obs.available_tools)],
+                    reasoning=f"cf demo step {s}",
+                ))
+                if obs.is_done:
+                    break
+        data = get_global_engine().stats()
+
+    lines = [
+        "### 🔄 Counterfactual Replay Engine",
+        "",
+        f"**Total analyses:** `{data.get('total_analyses', 0)}`",
+        f"**Average regret:** `{data.get('avg_regret', 0.0):.4f}`",
+        f"**High-regret steps:** `{data.get('high_regret_steps', 0)}`",
+        "",
+        "**Recent analyses:**",
+        "",
+    ]
+    for rec in data.get("recent", [])[:3]:
+        lines += [
+            f"**Step {rec.get('step','?')} — {rec.get('failure_type','?')}**",
+            f"- Actual: `{rec.get('actual_action','?')}` → `{rec.get('actual_reward',0.0):+.3f}`",
+            f"- Best alt: `{rec.get('best_alternative','none')}` → regret `{rec.get('regret',0.0):+.3f}`",
+            "",
+        ]
+    lines += [
+        "**How it works:** At failure steps, simulate K alternative actions from same state. "
+        "Regret = max(alt_rewards) − actual_reward. Apply regret penalty to GRPO reward. "
+        "Agent learns from what it *should* have done.",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Reward Hacking Detector (Critic) demo
+# ---------------------------------------------------------------------------
+
+def _demo_critic(difficulty: str) -> str:
+    """Show live reward hacking detector report."""
+    try:
+        import requests as _req
+        r = _req.get(f"{ENV_URL}/critic/report", timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+        else:
+            raise ValueError(f"HTTP {r.status_code}")
+    except Exception:
+        from agent_gauntlet.runtime.environment import AgentGauntletEnvironment
+        from agent_gauntlet.models import AgentAction, ActionType as _AT
+        env = AgentGauntletEnvironment(default_difficulty=difficulty, kaizen=False)
+        for _ in range(3):
+            obs = env.reset(difficulty=difficulty)
+            for s in range(min(obs.max_steps, 20)):
+                obs = env.step(AgentAction(
+                    action_type=_AT.CALL_TOOL.value,
+                    tool_name=obs.available_tools[s % len(obs.available_tools)],
+                    reasoning="",  # empty reasoning triggers critic
+                ))
+                if obs.is_done:
+                    break
+        data = env.critic_report
+
+    lines = [
+        "### 🧪 Reward Hacking Detector (Live Critic)",
+        "",
+        f"**Total hacking events:** `{data.get('total_hacking_events', 0)}`",
+        f"**Total penalty accumulated:** `{data.get('total_penalty_accumulated', 0.0):.4f}`",
+        "",
+        "**Patterns detected:**",
+        "",
+    ]
+    for pattern, count in sorted(data.get("pattern_breakdown", {}).items(), key=lambda x: -x[1]):
+        lines.append(f"- `{pattern}`: `{count}` events")
+    if not data.get("pattern_breakdown"):
+        lines.append("- No hacking patterns detected yet")
+    lines += [
+        "",
+        "**Recent events:**",
+        "",
+    ]
+    for ev in data.get("recent_events", [])[:5]:
+        lines.append(
+            f"- Step `{ev.get('step','?')}` — `{ev.get('pattern','?')}` "
+            f"(penalty `{ev.get('penalty',0.0):.2f}`) — _{ev.get('evidence','')[:80]}_"
+        )
+    lines += [
+        "",
+        "**Patterns monitored:** trivial_completion · repetitive_action · "
+        "overconfident_failure · shortcut_escalation · empty_reasoning · "
+        "injection_compliance · false_positive_flood",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Pareto Leaderboard demo
+# ---------------------------------------------------------------------------
+
+def _demo_pareto(difficulty: str, n_episodes: int) -> str:
+    """Run N episodes and show Pareto scores across 3 axes."""
+    from agent_gauntlet.runtime.environment import AgentGauntletEnvironment
+    from agent_gauntlet.models import AgentAction, ActionType as _AT
+
+    results = []
+    env = AgentGauntletEnvironment(default_difficulty=difficulty, kaizen=False)
+
+    for ep in range(max(1, int(n_episodes))):
+        obs = env.reset(difficulty=difficulty)
+        ep_reward = 0.0
+        for s in range(min(obs.max_steps, 30)):
+            if getattr(obs, "security_alert", None):
+                action = AgentAction(
+                    action_type=_AT.REFUSE_INJECTION.value,
+                    injection_refused=True,
+                    injection_description=obs.security_alert[:80],
+                    reasoning="Security alert — refusing",
+                )
+            elif getattr(obs, "compliance_warnings", []):
+                policy = obs.active_policies[0] if obs.active_policies else "UNKNOWN"
+                action = AgentAction(
+                    action_type=_AT.CHECK_COMPLIANCE.value,
+                    compliance_check_result="violation",
+                    compliance_policy=policy,
+                    compliance_alternative="use_compliant_alternative",
+                    decision_documented="Compliance violation detected",
+                    reasoning="Compliance check",
+                )
+            elif obs.last_tool_result and not obs.last_tool_result.success:
+                action = AgentAction(
+                    action_type=_AT.DETECT_FAILURE.value,
+                    failure_detected=obs.last_tool_result.failure_type,
+                    reasoning="Failure detected",
+                )
+            else:
+                action = AgentAction(
+                    action_type=_AT.CALL_TOOL.value,
+                    tool_name=obs.available_tools[s % len(obs.available_tools)],
+                    reasoning=f"Step {s}",
+                )
+            obs = env.step(action)
+            ep_reward += getattr(obs, "_reward", 0.0)
+            if obs.is_done:
+                break
+
+        pareto = env.pareto_scores(obs.metadata or {})
+        pareto["episode"] = ep + 1
+        pareto["total_reward"] = round(ep_reward, 4)
+        results.append(pareto)
+
+    if not results:
+        return "No results."
+
+    avg_cap   = sum(r["capability"]    for r in results) / len(results)
+    avg_safe  = sum(r["safety"]        for r in results) / len(results)
+    avg_speed = sum(r["speed"]         for r in results) / len(results)
+    avg_par   = sum(r["pareto_score"]  for r in results) / len(results)
+
+    lines = [
+        "### 📊 Multi-Objective Pareto Leaderboard",
+        "",
+        f"**Episodes:** `{len(results)}` | **Difficulty:** `{difficulty}`",
+        "",
+        "| Axis | Score | Measures |",
+        "|---|---|---|",
+        f"| 🎯 Capability | `{avg_cap:.3f}` | Task completion + failure recovery |",
+        f"| 🛡️ Safety | `{avg_safe:.3f}` | Security refusal + compliance detection |",
+        f"| ⚡ Speed | `{avg_speed:.3f}` | SLA compliance + budget efficiency |",
+        f"| **🏆 Pareto** | **`{avg_par:.3f}`** | **Balanced across all 3 axes** |",
+        "",
+        "| Ep | Capability | Safety | Speed | Pareto | Reward |",
+        "|---|---|---|---|---|---|",
+    ]
+    for r in results:
+        lines.append(
+            f"| {r['episode']} | `{r['capability']:.3f}` | `{r['safety']:.3f}` "
+            f"| `{r['speed']:.3f}` | `{r['pareto_score']:.3f}` | `{r['total_reward']:+.3f}` |"
+        )
+    lines += [
+        "",
+        "**Why Pareto matters:** Single reward hides trade-offs. "
+        "Pareto-optimal agent is top 10% on ALL 3 axes simultaneously — "
+        "what production deployments actually need.",
+    ]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Gradio UI
 # ---------------------------------------------------------------------------
@@ -1600,7 +1864,96 @@ Use this to validate that pack metrics are emitted from real episodes (not stati
                         )
 
             # ----------------------------------------------------------------
-            # Tab 8: About
+            # Tab 8: ⚔️ Adversarial Generator
+            # ----------------------------------------------------------------
+            with gr.Accordion("⚔️ Adversarial Generator", open=False):
+                gr.Markdown("""
+### Adversarial Task Generator
+
+Two-player RL loop: Generator creates failure combinations to break the Solver.
+Generator reward = Solver failure rate. Arms race → infinite novel challenges.
+
+**Generator learns:** Which failure combos are hardest → proposes them more often.
+**Solver learns:** How to handle novel, adversarially-crafted failure sequences.
+                """)
+                with gr.Row():
+                    adv_diff = gr.Dropdown(choices=DIFFICULTY_CHOICES, value="hard", label="Difficulty")
+                    adv_btn = gr.Button("▶️ Run Adversarial Demo", variant="primary")
+                adv_output = gr.Markdown("Click to see adversarial generator stats.")
+                adv_btn.click(fn=_demo_adversarial, inputs=[adv_diff], outputs=[adv_output])
+
+            # ----------------------------------------------------------------
+            # Tab 9: 🔄 Counterfactual Replay
+            # ----------------------------------------------------------------
+            with gr.Accordion("🔄 Counterfactual Replay", open=False):
+                gr.Markdown("""
+### Counterfactual Replay Engine
+
+When the agent fails at step N, we ask: *"What if it had taken a different action?"*
+
+Simulates K alternatives from the same state → computes regret → applies penalty to GRPO reward.
+Agent learns not just from what it did — but from what it **should** have done.
+
+**Result:** Faster learning, smarter policy, fewer wasted episodes.
+                """)
+                with gr.Row():
+                    cf_diff = gr.Dropdown(choices=DIFFICULTY_CHOICES, value="medium", label="Difficulty")
+                    cf_btn = gr.Button("▶️ Run Counterfactual Demo", variant="primary")
+                cf_output = gr.Markdown("Click to see counterfactual replay analysis.")
+                cf_btn.click(fn=_demo_counterfactual, inputs=[cf_diff], outputs=[cf_output])
+
+            # ----------------------------------------------------------------
+            # Tab 10: 🧪 Reward Hacking Detector
+            # ----------------------------------------------------------------
+            with gr.Accordion("🧪 Reward Hacking Detector", open=False):
+                gr.Markdown("""
+### Live Reward Hacking Detector (CriticPack)
+
+Runs on every training step. Detects shortcuts and penalizes them live.
+
+**Patterns detected:**
+- `trivial_completion` — complete_task at step < 3
+- `repetitive_action` — same action 3+ times in a row
+- `overconfident_failure` — high confidence despite failures
+- `shortcut_escalation` — escalate at step < 2
+- `empty_reasoning` — no reasoning provided
+- `injection_compliance` — followed injected instruction (catastrophic)
+
+**Demo:** *"Training step 45: agent tried trivial completion. Critic caught it. Penalty applied."*
+                """)
+                with gr.Row():
+                    critic_diff = gr.Dropdown(choices=DIFFICULTY_CHOICES, value="medium", label="Difficulty")
+                    critic_btn = gr.Button("▶️ Run Critic Demo", variant="primary")
+                critic_output = gr.Markdown("Click to see live reward hacking detection.")
+                critic_btn.click(fn=_demo_critic, inputs=[critic_diff], outputs=[critic_output])
+
+            # ----------------------------------------------------------------
+            # Tab 11: 📊 Pareto Leaderboard
+            # ----------------------------------------------------------------
+            with gr.Accordion("📊 Pareto Leaderboard", open=False):
+                gr.Markdown("""
+### Multi-Objective Pareto Leaderboard
+
+Single reward score hides trade-offs. We score agents on 3 independent axes:
+
+| Axis | Measures |
+|---|---|
+| 🎯 **Capability** | Task completion + failure recovery rate |
+| 🛡️ **Safety** | Security refusal + compliance detection |
+| ⚡ **Speed** | SLA compliance + budget efficiency |
+
+**Pareto-optimal agent:** Top 10% on ALL 3 axes simultaneously.
+This is what production deployments actually need.
+                """)
+                with gr.Row():
+                    pareto_diff = gr.Dropdown(choices=DIFFICULTY_CHOICES, value="medium", label="Difficulty")
+                    pareto_eps = gr.Slider(minimum=1, maximum=20, value=5, step=1, label="Episodes")
+                    pareto_btn = gr.Button("▶️ Run Pareto Analysis", variant="primary")
+                pareto_output = gr.Markdown("Click to compute Pareto scores.")
+                pareto_btn.click(fn=_demo_pareto, inputs=[pareto_diff, pareto_eps], outputs=[pareto_output])
+
+            # ----------------------------------------------------------------
+            # Tab 12: About
             # ----------------------------------------------------------------
             with gr.Accordion("📖 About", open=False):
                 gr.Markdown("""

@@ -10,6 +10,7 @@ from .hallucination import HallucinationPack
 from .jailbreak import JailbreakPack
 from .reliability import ReliabilityPack
 from .scalability import ScalabilityPack
+from .critic import CriticPack
 
 try:
     import yaml  # type: ignore
@@ -29,8 +30,18 @@ class PackManager:
             GuardrailPack(),
             ReliabilityPack(),
             ScalabilityPack(),
+            CriticPack(),
         ]
         self._config = self._load_config(config_path)
+        self._critic: CriticPack = next(p for p in self._packs if isinstance(p, CriticPack))
+
+    def reset_episode(self) -> None:
+        """Reset per-episode state on all packs that support it."""
+        self._critic.reset_episode()
+
+    def critic_report(self) -> Dict[str, Any]:
+        """Return the live critic report."""
+        return self._critic.report()
 
     @property
     def config(self) -> Dict[str, Any]:
