@@ -2,7 +2,7 @@
 title: Agent Gauntlet
 emoji: 🏭
 colorFrom: blue
-colorTo: slate
+colorTo: indigo
 sdk: gradio
 sdk_version: "4.44.0"
 app_file: demo_app.py
