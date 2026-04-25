@@ -41,7 +41,7 @@ from ..models import (
 from ..packs import PackManager
 from .rubrics import AgentGauntletRubric
 from .scenarios import GeneratedTask, InjectedFailure, ScenarioGenerator, RECOVERY_STRATEGIES, COST_PER_TOOL, DIFFICULTY_CONFIG
-from .kaizen import KaizenKernel
+from .forge import KaizenKernel
 from .adversarial import AdversarialGenerator, AdversarialOutcome, get_global_generator
 from .counterfactual import CounterfactualEngine, get_global_engine
 
