@@ -3,9 +3,8 @@ title: Agent Gauntlet
 emoji: 🏭
 colorFrom: blue
 colorTo: indigo
-sdk: gradio
-sdk_version: "4.44.0"
-app_file: demo_app.py
+sdk: docker
+app_port: 7860
 pinned: true
 license: bsd-3-clause
 short_description: "RL environment training LLMs to survive production failures"
