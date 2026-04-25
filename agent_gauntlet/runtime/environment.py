@@ -1239,10 +1239,14 @@ class AgentGauntletEnvironment(Environment):
 
         return self._difficulty
 
+    def close(self) -> None:
+        """No-op close for compatibility with context managers and Colab env_session."""
+        pass
+
     @property
     def current_difficulty(self) -> str:
         """Current difficulty level — useful for monitoring adaptive curriculum."""
-        return self._difficulty.value
+        return self._difficulty.valuealue
 
     @property
     def episode_count(self) -> int:

@@ -183,10 +183,22 @@ class AgentGauntletTRLEnv:
     - __init__: no arguments
     - reset(**kwargs): returns initial observation string
     - tool methods: exposed as function-calling tools
+
+    Supports two modes:
+    - Direct (GAUNTLET_DIRECT=1): runs environment in-process — no server needed (Colab)
+    - Remote (default): connects to environment server via HTTP
     """
 
     def __init__(self):
-        self._client = AgentGauntletEnv(base_url=ENV_URL)
+        use_direct = os.environ.get("GAUNTLET_DIRECT", "0") == "1"
+        if use_direct:
+            from agent_gauntlet.runtime.environment import AgentGauntletEnvironment
+            difficulty = os.environ.get("GAUNTLET_DIFFICULTY", "easy")
+            self._client = AgentGauntletEnvironment(default_difficulty=difficulty)
+            self._direct = True
+        else:
+            self._client = AgentGauntletEnv(base_url=ENV_URL)
+            self._direct = False
         self.reward = 0.0
         self.done = False
         self._last_obs = None
@@ -195,18 +207,20 @@ class AgentGauntletTRLEnv:
         """Start a new episode. Returns task description as initial observation."""
         difficulty = kwargs.get("difficulty", "easy")
         domain = kwargs.get("domain", None)
-        # Fix #3: actually pass difficulty (and optional domain) to the environment
         result = self._client.reset(difficulty=difficulty, domain=domain)
         self.reward = 0.0
         self.done = False
-        self._last_obs = result.observation
+        # Direct mode: reset() returns TaskObservation directly
+        # Remote mode: reset() returns StepResult with .observation
+        obs = result if self._direct else result.observation
+        self._last_obs = obs
         return (
-            f"TASK: {result.observation.task_description}\n"
-            f"GOAL: {result.observation.task_goal}\n"
-            f"AVAILABLE TOOLS: {', '.join(result.observation.available_tools)}\n"
-            f"BUDGET: {result.observation.api_calls_budget} API calls\n"
-            f"MAX STEPS: {result.observation.max_steps}\n"
-            f"DIFFICULTY: {result.observation.difficulty}"
+            f"TASK: {obs.task_description}\n"
+            f"GOAL: {obs.task_goal}\n"
+            f"AVAILABLE TOOLS: {', '.join(obs.available_tools)}\n"
+            f"BUDGET: {obs.api_calls_budget} API calls\n"
+            f"MAX STEPS: {obs.max_steps}\n"
+            f"DIFFICULTY: {obs.difficulty}"
         )
 
     def execute_action(self, action_json: str) -> str:
@@ -265,11 +279,17 @@ class AgentGauntletTRLEnv:
         )
 
         result = self._client.step(action)
-        self.reward = result.reward
-        self.done = result.done
-        self._last_obs = result.observation
-
-        obs = result.observation
+        # Direct mode: step() returns TaskObservation directly
+        # Remote mode: step() returns StepResult
+        if self._direct:
+            obs = result
+            self.reward = getattr(obs, "_reward", 0.0)
+            self.done = obs.is_done
+        else:
+            self.reward = result.reward
+            self.done = result.done
+            obs = result.observation
+        self._last_obs = obs
         response_parts = [
             f"Step {obs.current_step}/{obs.max_steps}",
             f"Budget: {obs.api_calls_made}/{obs.api_calls_budget} API calls",
