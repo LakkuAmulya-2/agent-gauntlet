@@ -153,6 +153,8 @@ class AgentGauntletEnv(EnvClient[AgentAction, TaskObservation, EpisodeState]):
             context_checkpoint_available=obs_data.get("context_checkpoint_available", False),
             last_checkpoint_step=obs_data.get("last_checkpoint_step", 0),
             total_steps_including_resumed=obs_data.get("total_steps_including_resumed", 0),
+            # Memory — past lessons from Forge kernel
+            past_lessons=obs_data.get("past_lessons", []),
         )
 
         return StepResult(

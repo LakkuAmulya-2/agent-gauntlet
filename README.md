@@ -42,6 +42,7 @@ tags:
 | 🔁 Replay Validator | `python scripts/replay_episode.py --seed 42 --difficulty hard --runs 3` |
 | 🛡️ Red-team Reward Audit | `python scripts/redteam_reward_audit.py --episodes 20 --difficulty hard` |
 | 📈 Perturbation Benchmark | `python scripts/perturbation_benchmark.py --episodes 20 --difficulty hard` |
+| 📓 Judge Notebook (GRPO+Unsloth) | [`notebooks/grpo_unsloth_judge_ready.ipynb`](notebooks/grpo_unsloth_judge_ready.ipynb) |
 
 ---
 
@@ -140,10 +141,18 @@ Ground truth always known — we injected the failures ourselves. **12 independe
 ![Reward during training](assets/reward_curves.png)
 *Episode reward vs training step. Red dashed = random baseline (0.12). Blue = trained agent.*
 
+![Training loss](assets/loss_curve.png)
+*Training loss vs training step from the same GRPO run.*
+
 ![Per-component rewards](assets/component_rewards.png)
 *Individual reward components tracked separately via wandb `train/reward_func_0..11`.*
 
+![Rubric breakdown](assets/rubric_breakdown.png)
+*Composable OpenEnv-style rubric contributions from the latest training run (`assets/rubric_breakdown.json`).*
+
 ### Before vs After Training
+
+> For true trained-model evidence, run `scripts/eval_trained_vs_random.py` (or the judge notebook) and use `assets/trained_vs_random.json` + `assets/trained_vs_random.png`.
 
 | Metric | Random Baseline | Smart Heuristic |
 |---|---|---|
@@ -154,6 +163,24 @@ Ground truth always known — we injected the failures ourselves. **12 independe
 | Avg budget remaining | 0.0573 | 0.4760 |
 
 *Latest run generated with `python scripts/demo_before_after.py --url http://127.0.0.1:8000 --episodes 50 --difficulty easy` (see `assets/results.json`).*
+
+<!-- TRAINED_EVIDENCE_START -->
+### Trained vs Random (Auto-generated)
+
+**Delta avg reward:** `n/a`
+
+| Metric | Random Baseline | Trained Model |
+|---|---|---|
+| Avg episode reward | n/a | n/a |
+| Task completion rate | n/a | n/a |
+| Failure detection rate | n/a | n/a |
+| Recovery rate | n/a | n/a |
+| Avg budget remaining | n/a | n/a |
+
+Training summary: planned updates `n/a`, reward points `n/a`, last10 reward mean `n/a`.
+
+Artifacts: `assets/trained_vs_random.json`, `assets/trained_vs_random.png`, `assets/training_summary_latest.json`
+<!-- TRAINED_EVIDENCE_END -->
 
 ---
 
@@ -197,8 +224,29 @@ python train_grpo.py --dry-run
 # Full training
 python train_grpo.py --difficulty easy --vllm-mode colocate
 
-# Before/after demo
-python scripts/demo_before_after.py --trained-model outputs/gauntlet-easy-*
+# Judge-grade meaningful run (enforces minimum update steps + saves training summary)
+python train_grpo.py --difficulty easy --vllm-mode colocate --dataset-size 1600 --num-epochs 2 --judge-ready --min-update-steps 80
+
+# Heuristic before/after demo (environment behavior)
+python scripts/demo_before_after.py --url http://localhost:8000 --episodes 50 --difficulty easy
+
+# Trained model vs random baseline (real model inference evidence)
+python scripts/eval_trained_vs_random.py --model-dir outputs/gauntlet-easy-* --difficulty easy --episodes 20
+
+# Auto-fill README trained-evidence block from latest artifacts
+python scripts/update_readme_evidence.py
+
+# Judge evidence summary (contains planned updates, reward points, component means)
+python -c "import json,glob; p=sorted(glob.glob('outputs/gauntlet-easy-*/training_summary.json'))[-1]; print(json.dumps(json.load(open(p)), indent=2))"
+
+# Rubric breakdown report (composable reward proof)
+python scripts/rubric_breakdown_report.py
+
+# Reward hacking stress audit (anti-gaming proof)
+python scripts/reward_hacking_report.py --episodes 20 --difficulty hard
+
+# Multi-seed ablations (paper-style evidence)
+python scripts/ablation_runner.py --difficulty easy --seeds 42,43,44
 
 # Deterministic replay validator (judge reproducibility)
 python scripts/replay_episode.py --seed 42 --difficulty hard --runs 3
@@ -212,6 +260,34 @@ python scripts/perturbation_benchmark.py --episodes 20 --difficulty hard --out a
 # Judge preflight (minimum requirements + evidence checks)
 python scripts/judge_readiness.py
 ```
+
+---
+
+## Production Auth and Rate Limits
+
+Set these environment variables for deployment hardening:
+
+```bash
+# API key auth modes: off | optional | strict
+OPSENV_AUTH_MODE=optional
+OPSENV_API_KEY=replace-with-strong-key
+
+# OpenEnv compatibility fallback (default false keeps /reset,/step,/state open)
+OPSENV_REQUIRE_AUTH_FOR_OPENENV=false
+
+# Rate limiting
+OPSENV_RATE_LIMIT_MAX=120
+OPSENV_RATE_LIMIT_WINDOW_S=60
+OPSENV_RATE_LIMIT_SCOPE=session_or_ip   # ip | api_key | session_or_ip
+
+# Server profile
+OPSENV_SERVER_PROFILE=full              # full | web | api
+```
+
+Notes:
+- In `optional` mode, requests without `x-api-key` are allowed, but invalid keys are rejected.
+- For strict production gateways, set `OPSENV_AUTH_MODE=strict` and configure your clients to send `x-api-key`.
+- If your orchestrator cannot attach headers, keep `OPSENV_REQUIRE_AUTH_FOR_OPENENV=false`.
 
 ---
 

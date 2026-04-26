@@ -51,6 +51,7 @@ tools:
           enum: [call_tool, detect_failure, recover, escalate, summarize_state,
                  send_message, delegate_subtask, request_status, complete_task,
                  generate_harder_variant, resolve_contradiction,
+                 update_stakeholder_belief,
                  refuse_injection, check_compliance, document_decision,
                  generate_trace, inform_stakeholder, checkpoint_state,
                  resume_from_checkpoint]

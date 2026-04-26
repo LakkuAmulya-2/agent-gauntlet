@@ -140,6 +140,22 @@ class AgentAction:
     risk_acknowledged: Optional[str] = None
     confidence_score: Optional[float] = None   # 0..1 self-reported confidence
 
+    def __post_init__(self) -> None:
+        # Normalize enum inputs for callers that pass ActionType directly.
+        if isinstance(self.action_type, ActionType):
+            self.action_type = self.action_type.value
+
+        allowed = {x.value for x in ActionType}
+        if self.action_type not in allowed:
+            raise ValueError(
+                f"Invalid action_type='{self.action_type}'. Must be one of: {sorted(allowed)}"
+            )
+
+        if self.confidence_score is not None:
+            self.confidence_score = float(self.confidence_score)
+            if not (0.0 <= self.confidence_score <= 1.0):
+                raise ValueError("confidence_score must be between 0 and 1.")
+
     @classmethod
     def model_json_schema(cls) -> Dict[str, Any]:
         """Compatibility shim for OpenEnv /schema endpoint."""
@@ -258,6 +274,21 @@ class TaskObservation:
 
     # Memory — past lessons from Forge kernel, visible to agent at episode start
     past_lessons: List[str] = field(default_factory=list)
+
+    def assert_valid(self) -> None:
+        """Optional strict checker for debugging and tests."""
+        if self.current_step < 0:
+            raise ValueError("current_step must be >= 0")
+        if self.max_steps <= 0:
+            raise ValueError("max_steps must be > 0")
+        if not (0.0 <= self.context_used_pct <= 1.0):
+            raise ValueError("context_used_pct must be between 0 and 1")
+        if not (0.0 <= self.budget_remaining <= 1.0):
+            raise ValueError("budget_remaining must be between 0 and 1")
+        if self.task_domain not in {x.value for x in TaskDomain}:
+            raise ValueError(f"Unknown task_domain: {self.task_domain}")
+        if self.difficulty not in {x.value for x in DifficultyLevel}:
+            raise ValueError(f"Unknown difficulty: {self.difficulty}")
 
     @classmethod
     def model_json_schema(cls) -> Dict[str, Any]:
@@ -408,10 +439,29 @@ class EpisodeState:
     idempotency_seen: List[str] = field(default_factory=list)
     uncertainty_overconfidence_events: int = 0
 
+    def assert_valid(self) -> None:
+        """Optional strict checker for debugging and tests."""
+        if self.step_count < 0:
+            raise ValueError("step_count must be >= 0")
+        if self.max_steps <= 0:
+            raise ValueError("max_steps must be > 0")
+        if self.task_domain not in {x.value for x in TaskDomain}:
+            raise ValueError(f"Unknown task_domain: {self.task_domain}")
+        if self.difficulty not in {x.value for x in DifficultyLevel}:
+            raise ValueError(f"Unknown difficulty: {self.difficulty}")
+
     @classmethod
     def model_json_schema(cls) -> Dict[str, Any]:
         """Compatibility shim for OpenEnv /schema endpoint."""
         return TypeAdapter(cls).json_schema()
+
+    def __call__(self) -> "EpisodeState":
+        """
+        Compatibility helper: allows both `env.state` and `env.state()`.
+        Some OpenEnv examples use method-style `state()`, while this repo
+        exposes `state` as a property on the environment.
+        """
+        return self
 
 
 @dataclass

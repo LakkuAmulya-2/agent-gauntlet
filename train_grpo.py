@@ -25,7 +25,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -733,6 +735,22 @@ def build_dataset(n_samples: int, difficulty: str) -> Dataset:
     return Dataset.from_dict({"prompt": prompts, "difficulty": [difficulty] * n_samples})
 
 
+REWARD_FUNC_SPECS = [
+    ("task_completion", reward_task_completion, "rubric_task_completion"),
+    ("failure_handling", reward_failure_handling, "rubric_failure_recovery"),
+    ("efficiency", reward_efficiency, "rubric_efficiency"),
+    ("multi_agent", reward_multi_agent, "rubric_multi_agent"),
+    ("long_horizon", reward_long_horizon, "rubric_long_horizon"),
+    ("reasoning_quality", reward_reasoning_quality, "rubric_reasoning"),
+    ("security", reward_security, "rubric_security"),
+    ("compliance", reward_compliance, "rubric_compliance"),
+    ("sla_reliability", reward_sla_reliability, "rubric_sla"),
+    ("observability", reward_observability, "rubric_observability"),
+    ("theory_of_mind", reward_theory_of_mind, "rubric_tom"),
+    ("long_horizon_compression", reward_long_horizon_compression, "rubric_checkpoint_recall"),
+]
+
+
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
@@ -755,6 +773,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vllm-server-url", default="http://localhost:8000")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--save-steps", type=int, default=20)
+    parser.add_argument(
+        "--disable-rewards",
+        type=str,
+        default="",
+        help="Comma-separated reward names to disable for ablations. "
+             "Available: " + ",".join(name for name, _, _ in REWARD_FUNC_SPECS),
+    )
+    parser.add_argument("--judge-ready", action="store_true",
+                        help="Enforce meaningful training budget and evidence outputs.")
+    parser.add_argument("--min-update-steps", type=int, default=80,
+                        help="Minimum optimizer update steps for judge-ready training.")
+    parser.add_argument("--auto-scale-dataset", action="store_true", default=True,
+                        help="Auto increase dataset_size to satisfy min-update-steps.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run 5 steps only to verify loop works before full training")
     return parser.parse_args()
@@ -771,6 +802,26 @@ def main():
     model, tokenizer = load_model_with_unsloth(args.model_id)
     if hasattr(tokenizer, "pad_token") and tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    # Judge-ready guardrail: ensure training budget is meaningful.
+    if args.judge_ready and not args.dry_run:
+        # updates ~= ceil(dataset_size / grad_accum) * epochs for batch_size=1
+        planned_updates = math.ceil(args.dataset_size / max(1, args.gradient_accumulation_steps)) * max(1, args.num_epochs)
+        if planned_updates < args.min_update_steps:
+            needed_dataset = math.ceil(
+                (args.min_update_steps / max(1, args.num_epochs))
+            ) * max(1, args.gradient_accumulation_steps)
+            if args.auto_scale_dataset:
+                print(
+                    f"[judge-ready] Increasing dataset_size {args.dataset_size} -> {needed_dataset} "
+                    f"to meet min_update_steps={args.min_update_steps}."
+                )
+                args.dataset_size = needed_dataset
+            else:
+                raise ValueError(
+                    f"Planned updates ({planned_updates}) < min_update_steps ({args.min_update_steps}). "
+                    f"Increase --dataset-size or --num-epochs."
+                )
 
     dataset = build_dataset(args.dataset_size, args.difficulty)
 
@@ -806,23 +857,17 @@ def main():
         log_completions=args.log_completions,  # FAQ Q15/Q17: inspect actual generations
     )
 
+    disabled = {x.strip() for x in args.disable_rewards.split(",") if x.strip()}
+    selected_specs = [spec for spec in REWARD_FUNC_SPECS if spec[0] not in disabled]
+    if not selected_specs:
+        raise ValueError("All reward functions disabled. Keep at least one reward.")
+    reward_funcs = [fn for _, fn, _ in selected_specs]
+    reward_name_to_rubric = {name: rubric for name, _, rubric in selected_specs}
+
     trainer = GRPOTrainer(
         model=model,  # Unsloth model or model_id string
         processing_class=tokenizer,
-        reward_funcs=[
-            reward_task_completion,         # train/reward_func_0 — primary
-            reward_failure_handling,        # train/reward_func_1 — failure handling
-            reward_efficiency,              # train/reward_func_2 — budget/context
-            reward_multi_agent,             # train/reward_func_3 — Theme #1 coordination
-            reward_long_horizon,            # train/reward_func_4 — Theme #2 checkpoints
-            reward_reasoning_quality,       # train/reward_func_5 — reasoning quality
-            reward_security,                # train/reward_func_6 — Theme #3.1 security
-            reward_compliance,              # train/reward_func_7 — Theme #3.1 compliance
-            reward_sla_reliability,         # train/reward_func_8 — Theme #3.1 SLA
-            reward_observability,           # train/reward_func_9 — Theme #4 traces
-            reward_theory_of_mind,          # train/reward_func_10 — Theme #1 ToM
-            reward_long_horizon_compression, # train/reward_func_11 — Theme #2 compression
-        ],
+        reward_funcs=reward_funcs,
         train_dataset=dataset,
         args=grpo_config,
         environment_factory=AgentGauntletTRLEnv,
@@ -832,9 +877,14 @@ def main():
     print(f"Model: {args.model_id}")
     print(f"Dataset: {args.dataset_size} samples")
     print(f"Output: {output_dir}")
+    print(
+        f"Planned updates: "
+        f"{math.ceil(args.dataset_size / max(1, args.gradient_accumulation_steps)) * max(1, args.num_epochs)}"
+    )
 
+    train_result = None
     try:
-        trainer.train()
+        train_result = trainer.train()
     finally:
         print(f"\nTraining complete.")
 
@@ -845,6 +895,13 @@ def main():
 
     # Save reward curves to assets/ for README and judges
     _save_reward_plots(trainer, output_dir)
+    _save_training_summary(
+        trainer,
+        train_result.metrics if train_result is not None else {},
+        output_dir,
+        args,
+        reward_name_to_rubric=reward_name_to_rubric,
+    )
 
     print(f"\nNext steps:")
     print(f"  1. Inspect generations: python scripts/sample_generations.py --model-dir {output_dir}")
@@ -874,6 +931,8 @@ def _save_reward_plots(trainer, output_dir: str) -> None:
 
     steps = [x["step"] for x in log_history if "reward" in x]
     rewards = [x["reward"] for x in log_history if "reward" in x]
+    loss_steps = [x["step"] for x in log_history if "loss" in x]
+    losses = [x["loss"] for x in log_history if "loss" in x]
 
     if not rewards:
         return
@@ -882,11 +941,26 @@ def _save_reward_plots(trainer, output_dir: str) -> None:
     smoothed = np.convolve(rewards, np.ones(window) / window, mode="valid")
     smooth_steps = steps[window - 1:]
 
+    random_baseline = None
+    baseline_file = Path("assets/baseline_results_judge.json")
+    if baseline_file.exists():
+        try:
+            baseline_payload = json.loads(baseline_file.read_text(encoding="utf-8"))
+            random_baseline = float((baseline_payload.get("random") or {}).get("avg_reward"))
+        except Exception:
+            random_baseline = None
+
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(steps, rewards, alpha=0.3, color="steelblue", label="Per-step reward")
     ax.plot(smooth_steps, smoothed, color="steelblue", linewidth=2,
             label=f"Rolling avg (window={window})")
-    ax.axhline(y=0.12, color="red", linestyle="--", label="Random baseline (0.12)")
+    if random_baseline is not None:
+        ax.axhline(
+            y=random_baseline,
+            color="red",
+            linestyle="--",
+            label=f"Random baseline ({random_baseline:.3f})",
+        )
     ax.set_xlabel("Training step")
     ax.set_ylabel("Episode reward")
     ax.set_title("Agent Gauntlet — Reward During GRPO Training")
@@ -896,6 +970,19 @@ def _save_reward_plots(trainer, output_dir: str) -> None:
     plt.savefig("assets/reward_curves.png", dpi=150, bbox_inches="tight")
     plt.close()
     print("Saved: assets/reward_curves.png")
+
+    if losses:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(loss_steps, losses, color="darkorange", alpha=0.85, label="Train loss")
+        ax.set_xlabel("Training step")
+        ax.set_ylabel("Loss")
+        ax.set_title("Agent Gauntlet — Training Loss Curve")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig("assets/loss_curve.png", dpi=150, bbox_inches="tight")
+        plt.close()
+        print("Saved: assets/loss_curve.png")
 
     component_keys = [
         ("reward_func_0",  "Task completion",           "steelblue"),
@@ -928,6 +1015,60 @@ def _save_reward_plots(trainer, output_dir: str) -> None:
     plt.savefig("assets/component_rewards.png", dpi=150, bbox_inches="tight")
     plt.close()
     print("Saved: assets/component_rewards.png")
+
+
+def _save_training_summary(
+    trainer,
+    metrics: dict,
+    output_dir: str,
+    args: argparse.Namespace,
+    reward_name_to_rubric: dict[str, str],
+) -> None:
+    """Persist judge-facing training metadata and core learning stats."""
+    log_history = getattr(trainer.state, "log_history", []) or []
+    reward_points = [x["reward"] for x in log_history if "reward" in x]
+    component_keys = [f"reward_func_{i}" for i in range(12)]
+    component_means = {}
+    for key in component_keys:
+        vals = [x[key] for x in log_history if key in x]
+        if vals:
+            component_means[key] = sum(vals) / len(vals)
+
+    rubric_breakdown = {}
+    for idx, (name, rubric) in enumerate(reward_name_to_rubric.items()):
+        key = f"reward_func_{idx}"
+        rubric_breakdown[rubric] = {
+            "reward_name": name,
+            "metric_key": key,
+            "mean": component_means.get(key),
+        }
+
+    summary = {
+        "model_id": args.model_id,
+        "difficulty": args.difficulty,
+        "dataset_size": args.dataset_size,
+        "num_epochs": args.num_epochs,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "num_generations": args.num_generations,
+        "judge_ready": bool(args.judge_ready),
+        "min_update_steps_target": args.min_update_steps,
+        "planned_update_steps": math.ceil(args.dataset_size / max(1, args.gradient_accumulation_steps)) * max(1, args.num_epochs),
+        "runtime_metrics": metrics,
+        "reward_points": len(reward_points),
+        "reward_mean": (sum(reward_points) / len(reward_points)) if reward_points else None,
+        "reward_last10_mean": (sum(reward_points[-10:]) / len(reward_points[-10:])) if reward_points else None,
+        "component_means": component_means,
+        "rubric_breakdown": rubric_breakdown,
+        "disabled_rewards": [x.strip() for x in args.disable_rewards.split(",") if x.strip()],
+        "output_dir": output_dir,
+    }
+
+    out_path = Path(output_dir) / "training_summary.json"
+    out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    Path("assets").mkdir(exist_ok=True)
+    Path("assets/training_summary_latest.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(f"Saved: {out_path}")
+    print("Saved: assets/training_summary_latest.json")
 
 
 if __name__ == "__main__":
