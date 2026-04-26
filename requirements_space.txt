@@ -3,3 +3,7 @@ gradio>=4.44.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.0.0
+transformers
+datasets
+trl[vllm]>=1.0.0
+unsloth

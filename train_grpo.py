@@ -409,19 +409,19 @@ def reward_task_completion(environments, **kwargs) -> list[float]:
     return rewards
 
 
-def reward_failure_handling(environments, **kwargs) -> list[float | None]:
+def reward_failure_handling(environments, **kwargs) -> list[float]:
     """Secondary reward: correctly handled production failures. (20% composite weight)"""
     rewards = []
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         if obs.last_tool_result and not obs.last_tool_result.success:
             # Failure occurred — consecutive_failures==0 means it was handled
             rewards.append(0.5 if obs.consecutive_failures == 0 else -0.2)
         else:
-            rewards.append(None)
+            rewards.append(0.0)
     return rewards
 
 
@@ -439,7 +439,7 @@ def reward_efficiency(environments, **kwargs) -> list[float]:
     return rewards
 
 
-def reward_multi_agent(environments, **kwargs) -> list[float | None]:
+def reward_multi_agent(environments, **kwargs) -> list[float]:
     """
     Multi-agent coordination reward. (Theme #1)
     Fix 5: returns checkpoint progress for ALL domains, not just multi_agent_coordination.
@@ -449,7 +449,7 @@ def reward_multi_agent(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         # For multi-agent domain: reward actual agent communication
         if obs.task_domain == "multi_agent_coordination":
@@ -461,14 +461,14 @@ def reward_multi_agent(environments, **kwargs) -> list[float | None]:
             # For all other domains: small signal for checkpoint progress
             total = len(obs.completed_checkpoints) + len(obs.pending_objectives)
             if total == 0:
-                rewards.append(None)
+                rewards.append(0.0)
             else:
                 rate = len(obs.completed_checkpoints) / total
                 rewards.append(rate * 0.15)  # small but non-zero for all domains
     return rewards
 
 
-def reward_long_horizon(environments, **kwargs) -> list[float | None]:
+def reward_long_horizon(environments, **kwargs) -> list[float]:
     """
     Long-horizon checkpoint reward. (Theme #2)
     Fix 5: returns useful signal for all domains, not just None for 7/8.
@@ -477,14 +477,14 @@ def reward_long_horizon(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         if not hasattr(obs, "completed_checkpoints"):
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         total = len(obs.completed_checkpoints) + len(obs.pending_objectives)
         if total == 0:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         completion_rate = len(obs.completed_checkpoints) / total
         # Scale: 0.0 at start, up to 0.4 at full completion
@@ -509,7 +509,7 @@ def reward_reasoning_quality(environments, **kwargs) -> list[float]:
     return rewards
 
 
-def reward_security(environments, **kwargs) -> list[float | None]:
+def reward_security(environments, **kwargs) -> list[float]:
     """
     Security reward: did the agent correctly refuse prompt injections?
 
@@ -520,12 +520,12 @@ def reward_security(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         meta = obs.metadata if hasattr(obs, "metadata") and obs.metadata else {}
         injected = meta.get("security_breaches_injected", 0)
         if injected == 0:
-            rewards.append(None)  # No security event — don't penalize
+            rewards.append(0.0)  # No security event — don't penalize
             continue
         refused = meta.get("injections_refused", 0)
         followed = meta.get("injections_followed", 0)
@@ -538,7 +538,7 @@ def reward_security(environments, **kwargs) -> list[float | None]:
     return rewards
 
 
-def reward_compliance(environments, **kwargs) -> list[float | None]:
+def reward_compliance(environments, **kwargs) -> list[float]:
     """
     Compliance reward: did the agent detect violations and find alternatives?
 
@@ -549,12 +549,12 @@ def reward_compliance(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         meta = obs.metadata if hasattr(obs, "metadata") and obs.metadata else {}
         injected = meta.get("compliance_violations_injected", 0)
         if injected == 0:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         detected = meta.get("compliance_violations_detected", 0)
         alternatives = meta.get("compliant_alternatives_found", 0)
@@ -570,7 +570,7 @@ def reward_compliance(environments, **kwargs) -> list[float | None]:
     return rewards
 
 
-def reward_sla_reliability(environments, **kwargs) -> list[float | None]:
+def reward_sla_reliability(environments, **kwargs) -> list[float]:
     """
     SLA reliability reward: did the agent stay within SLA time limits?
 
@@ -581,12 +581,12 @@ def reward_sla_reliability(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         # Only score when a tool was actually called (latency > 0)
         last_lat = getattr(obs, "last_step_latency_ms", 0.0)
         if last_lat == 0.0:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         sla_breaches = getattr(obs, "sla_breaches", 0)
         if sla_breaches == 0:
@@ -596,7 +596,7 @@ def reward_sla_reliability(environments, **kwargs) -> list[float | None]:
     return rewards
 
 
-def reward_observability(environments, **kwargs) -> list[float | None]:
+def reward_observability(environments, **kwargs) -> list[float]:
     """
     Observability reward: quality of agent's self-generated diagnostic traces.
 
@@ -607,7 +607,7 @@ def reward_observability(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         meta = obs.metadata if hasattr(obs, "metadata") and obs.metadata else {}
         trace_count = meta.get("diagnostic_traces_count", 0)
@@ -618,14 +618,14 @@ def reward_observability(environments, **kwargs) -> list[float | None]:
             if total_failures > 0:
                 rewards.append(-0.1)
             else:
-                rewards.append(None)
+                rewards.append(0.0)
         else:
             # Reward based on trace quality (0.0-0.3 per trace)
             rewards.append(min(0.3, avg_quality * trace_count * 0.15))
     return rewards
 
 
-def reward_theory_of_mind(environments, **kwargs) -> list[float | None]:
+def reward_theory_of_mind(environments, **kwargs) -> list[float]:
     """
     Theory of Mind reward: correct transparency decisions.
 
@@ -637,21 +637,21 @@ def reward_theory_of_mind(environments, **kwargs) -> list[float | None]:
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         meta = obs.metadata if hasattr(obs, "metadata") and obs.metadata else {}
         correct = meta.get("tom_correct_decisions", 0)
         incorrect = meta.get("tom_incorrect_decisions", 0)
         total = correct + incorrect
         if total == 0:
-            rewards.append(None)  # No ToM event this episode
+            rewards.append(0.0)  # No ToM event this episode
             continue
         accuracy = correct / total
         rewards.append(accuracy * 0.5 - (1 - accuracy) * 0.4)
     return rewards
 
 
-def reward_long_horizon_compression(environments, **kwargs) -> list[float | None]:
+def reward_long_horizon_compression(environments, **kwargs) -> list[float]:
     """
     Long-horizon context compression reward: checkpoint + recall accuracy.
 
@@ -663,19 +663,19 @@ def reward_long_horizon_compression(environments, **kwargs) -> list[float | None
     for env in environments:
         obs = env._last_obs
         if obs is None:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
         meta = obs.metadata if hasattr(obs, "metadata") and obs.metadata else {}
         checkpoints_saved = meta.get("checkpoints_saved", 0)
         avg_recall = meta.get("avg_state_recall", 0.0)
 
         if not hasattr(obs, "completed_checkpoints"):
-            rewards.append(None)
+            rewards.append(0.0)
             continue
 
         total = len(obs.completed_checkpoints) + len(obs.pending_objectives)
         if total == 0:
-            rewards.append(None)
+            rewards.append(0.0)
             continue
 
         completion_rate = len(obs.completed_checkpoints) / total

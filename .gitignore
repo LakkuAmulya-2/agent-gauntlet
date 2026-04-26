@@ -41,5 +41,7 @@ outputs/
 .DS_Store
 Thumbs.db
 
-# Git LFS / binary assets tracked separately
-# assets/*.png and assets/*.json are committed directly (small files)
+# Binary assets — tracked separately via HF API, not git
+assets/*.png
+assets/*.jpg
+assets/*.json
